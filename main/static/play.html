@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>迷宫 3D · 手机端</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box;
+    -webkit-tap-highlight-color:transparent; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000;
+    color:#e8eefc; font-family:system-ui,"Microsoft YaHei",sans-serif;
+    touch-action:none; user-select:none; -webkit-user-select:none; }
+  #cvs { position:fixed; left:0; top:0; width:100%; height:100%; display:block; }
+  #hud { position:fixed; left:0; top:0; right:0;
+    padding:12px 18px;
+    padding-top: max(12px, env(safe-area-inset-top));
+    display:flex; justify-content:space-between; font-size:14px;
+    pointer-events:none; text-shadow:0 1px 4px #000; z-index:10;
+    color:#a8b8d8; }
+  #you { color:#e8eefc; font-weight:600; pointer-events:auto; cursor:pointer; }
+  #status, #you {
+    max-width: 28%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  #controlBar {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    display: flex;
+    gap: 3px;
+    padding: 3px;
+    pointer-events: auto;
+    background: rgba(16, 24, 42, 0.72);
+    border: 1px solid rgba(120, 160, 230, 0.4);
+    border-radius: 999px;
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .mode-btn {
+    border: 0;
+    background: transparent;
+    color: #a8b8d8;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font: 600 13px system-ui, "Microsoft YaHei", sans-serif;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .mode-btn.active {
+    background: rgba(80, 140, 255, 0.7);
+    color: #fff;
+  }
+
+  .btn {
+    width: 86px; height: 86px;
+    border-radius: 50%;
+    background: rgba(30,40,70,0.5);
+    border: 2px solid rgba(120,160,230,0.5);
+    color: #d8e4ff;
+    font-size: 34px;
+    display: flex; align-items: center; justify-content: center;
+    user-select: none;
+    touch-action: none;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    transition: transform 0.08s, background 0.08s;
+  }
+  .btn.active {
+    background: rgba(80,140,255,0.65);
+    border-color: #8ec4ff;
+    transform: scale(0.94);
+  }
+
+  #padControls[hidden], #stickControls[hidden] { display: none !important; }
+
+  #turnGroup {
+    position: fixed;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    left: 24px;
+    display: flex; gap: 18px; z-index: 20;
+  }
+  #moveGroup {
+    position: fixed;
+    bottom: max(24px, env(safe-area-inset-bottom));
+    right: 24px;
+    display: flex; flex-direction: column; gap: 18px;
+    align-items: center; z-index: 20;
+  }
+
+  #stickControls {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    pointer-events: none;
+  }
+  #stickZone, #lookZone {
+    position: absolute;
+    top: max(56px, env(safe-area-inset-top) + 44px);
+    bottom: 0;
+    width: 48%;
+    pointer-events: auto;
+    touch-action: none;
+  }
+  #stickZone { left: 0; }
+  #lookZone { right: 0; }
+
+  #stickBase {
+    position: absolute;
+    left: max(80px, env(safe-area-inset-left) + 64px);
+    bottom: max(28px, env(safe-area-inset-bottom));
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    background: rgba(30, 40, 70, 0.42);
+    border: 2px solid rgba(120, 160, 230, 0.45);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    pointer-events: none;
+  }
+  #stickBase.active {
+    left: 0;
+    top: 0;
+    bottom: auto;
+    transform: translate(-50%, -50%);
+    background: rgba(30, 40, 70, 0.55);
+    border-color: #8ec4ff;
+  }
+  #stickKnob {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 58px;
+    height: 58px;
+    margin: -29px 0 0 -29px;
+    border-radius: 50%;
+    background: rgba(80, 140, 255, 0.72);
+    border: 2px solid rgba(190, 216, 255, 0.85);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    will-change: transform;
+  }
+  #lookPad {
+    position: absolute;
+    right: max(24px, env(safe-area-inset-right));
+    bottom: max(28px, env(safe-area-inset-bottom));
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    border: 2px dashed rgba(120, 160, 230, 0.42);
+    background: rgba(30, 40, 70, 0.28);
+    color: #9eb0d0;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1.45;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #lookPad.active {
+    background: rgba(80, 140, 255, 0.28);
+    border-style: solid;
+    border-color: #8ec4ff;
+    color: #e8eefc;
+  }
+
+  #consentLayer {
+    position: fixed; inset: 0; z-index: 30; display: flex;
+    align-items: center; justify-content: center;
+    background: #0b1020; padding: 20px; overflow: auto;
+  }
+  #consentLayer.hidden { display: none; }
+  #consentCard {
+    max-width: 420px; width: 100%; background: #161c30; color: #e8ecf8;
+    border: 1px solid #2c3550; border-radius: 12px; padding: 18px;
+    font-size: 15px; line-height: 1.55;
+  }
+  #consentCard h2 { margin: 0 0 10px; font-size: 19px; }
+  #consentCard p { margin: 0 0 10px; color: #b9c2dd; }
+  #consentCard label { display: block; margin: 12px 0 6px; color: #cdd5ee; }
+  #consentCard input[type=text] {
+    width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px;
+    border-radius: 8px; border: 1px solid #3a4668; background: #0f1425; color: #fff;
+  }
+  #consentCheckLabel {
+    display: flex !important; gap: 8px; align-items: flex-start; font-size: 14px;
+  }
+  #consentCheckLabel input { margin-top: 3px; }
+  #consentBtn {
+    width: 100%; margin-top: 16px; padding: 12px; font-size: 16px;
+    border: 0; border-radius: 8px; background: #3d7bfd; color: #fff; font-weight: 600;
+  }
+  #consentBtn:disabled { background: #39415a; color: #8f97ad; }
+  #consentError { color: #ff8a8a; margin-top: 8px; min-height: 18px; font-size: 14px; }
+  #winBanner { position:fixed; left:50%; top:50%;
+    transform:translate(-50%,-50%);
+    background:rgba(30,200,90,0.95); color:#fff;
+    padding:20px 40px; border-radius:14px; font-size:28px; font-weight:bold;
+    display:none; z-index:100; box-shadow:0 8px 32px rgba(0,0,0,0.6);
+    text-align:center; }
+
+  #vitals {
+    position: fixed;
+    top: max(48px, env(safe-area-inset-top) + 36px);
+    left: 16px;
+    z-index: 15;
+    width: min(190px, 30vw);
+    pointer-events: none;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(8, 14, 28, 0.62);
+    border: 1px solid rgba(120, 160, 230, 0.28);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  #vitals .vital { display:flex; align-items:center; gap:8px; margin-top:4px; font-size:11px; color:#9eb0d0; }
+  #vitals .vital:first-child { margin-top:0; }
+  #vitals .bar { flex:1; height:8px; border-radius:99px; background:#1a2236; overflow:hidden; }
+  #vitals .bar i { display:block; height:100%; width:0; background:#3ee07a; }
+  #vitals .bar.smoke i { background:#ffd54a; }
+  #vitalNote { margin-top:6px; font-size:11px; color:#f0c14a; min-height:14px; }
+
+  #smokeVeil {
+    position: fixed; inset: 0; z-index: 8;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse at center, rgba(78, 80, 86, 0.18) 10%, rgba(28, 30, 36, 0.92) 100%);
+    opacity: 0;
+  }
+
+  #loading {
+    position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
+    color:#8fa3c8; font-size:16px; z-index:200;
+  }
+
+  #rotate {
+    position: fixed; left:0; top:0; right:0; bottom:0;
+    background: #050810; z-index: 500;
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 20px; color: #8fa3c8; font-size: 16px;
+  }
+  @media (orientation: portrait) {
+    #rotate { display: flex; }
+  }
+</style>
+</head>
+<body>
+<canvas id="cvs" aria-label="第一人称迷宫视图"></canvas>
+<div id="smokeVeil" aria-hidden="true"></div>
+
+<div id="hud">
+  <span id="status" role="status" aria-live="polite">连接中…</span>
+  <span id="you" title="点击改名">—</span>
+</div>
+<div id="vitals" aria-label="自身状态">
+  <div class="vital"><span>血量</span><div class="bar"><i id="hpFill"></i></div></div>
+  <div class="vital"><span>烟气</span><div class="bar smoke"><i id="smFill"></i></div></div>
+  <div id="vitalNote"></div>
+</div>
+
+<div id="controlBar" role="radiogroup" aria-label="操作方式">
+  <button type="button" class="mode-btn active" id="modePad" role="radio" aria-checked="true">方向键</button>
+  <button type="button" class="mode-btn" id="modeStick" role="radio" aria-checked="false">摇杆</button>
+</div>
+
+<div id="padControls">
+  <div id="turnGroup">
+    <button type="button" class="btn" id="btnLeft" aria-label="向左转">◀</button>
+    <button type="button" class="btn" id="btnRight" aria-label="向右转">▶</button>
+  </div>
+  <div id="moveGroup">
+    <button type="button" class="btn" id="btnFwd" aria-label="前进">▲</button>
+    <button type="button" class="btn" id="btnBack" aria-label="后退">▼</button>
+  </div>
+</div>
+
+<div id="stickControls" hidden>
+  <div id="stickZone" aria-label="移动摇杆区域">
+    <div id="stickBase">
+      <div id="stickKnob"></div>
+    </div>
+  </div>
+  <div id="lookZone" aria-label="滑动转向区域">
+    <div id="lookPad">左右滑动<br>转向</div>
+  </div>
+</div>
+
+<div id="consentLayer" role="dialog" aria-modal="true" aria-label="参与须知">
+  <div id="consentCard">
+    <h2>参与须知</h2>
+    <p>你将在一个虚拟迷宫中尝试找到出口，过程中可能出现烟雾、火灾和人群拥挤的模拟效果，不会造成真实伤害。</p>
+    <p>系统会记录你的移动轨迹与时间，仅用于本实验的汇总统计，不会公开个人身份信息。</p>
+    <label for="participantInput">参与者编号（由主试提供）</label>
+    <input id="participantInput" type="text" autocomplete="off" placeholder="例如 S001">
+    <label id="consentCheckLabel">
+      <input id="consentCheck" type="checkbox">
+      我已阅读并同意参加本次实验，可随时退出
+    </label>
+    <button id="consentBtn" disabled>同意并进入</button>
+    <div id="consentError" role="alert"></div>
+  </div>
+</div>
+<div id="winBanner">出口到达，已安全撤离</div>
+<div id="loading">加载 3D 引擎…</div>
+<div id="rotate">
+  <div style="font-size:48px">📱↻</div>
+  <div>请横屏使用</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "/static/vendor/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+let THREE;
+try {
+  THREE = await import('three');
+} catch (error) {
+  document.getElementById('loading').textContent = '3D 资源加载失败，请检查连接后刷新';
+  throw error;
+}
+
+// ================= 状态 =================
+const statusEl = document.getElementById('status');
+const youEl = document.getElementById('you');
+const winBanner = document.getElementById('winBanner');
+const loadingEl = document.getElementById('loading');
+const hpFill = document.getElementById('hpFill');
+const smFill = document.getElementById('smFill');
+const vitalNote = document.getElementById('vitalNote');
+
+let pid = localStorage.getItem('maze_pid');
+if (!pid) {
+  pid = 'p' + Math.random().toString(36).slice(2, 10);
+  localStorage.setItem('maze_pid', pid);
+}
+let name = localStorage.getItem('maze_name') || ('玩家' + pid.slice(1, 4));
+let participant = localStorage.getItem('maze_participant') || '';
+let consentGiven = localStorage.getItem('maze_consent') === '1';
+
+let CELL = 32, MW = 60, MH = 34;
+let WORLD_W = 1920, WORLD_H = 1088;
+let VIEW_W = 200, VIEW_H = 112;
+let walls = null;
+let EXITS = [[59, 33]];
+
+let me = null;
+let myColor = '#fff';
+let hasWon = false;
+
+// 朝向（本地维护）
+let yaw = parseFloat(localStorage.getItem('maze_yaw') || '0');
+if (!Number.isFinite(yaw)) yaw = 0;
+
+// 输入状态
+let turnDir = 0;    // +1 左转, -1 右转
+let moveDir = 0;    // +1 前进, -1 后退
+let moveFwd = 0;    // 摇杆前进分量 -1~1
+let moveStrafe = 0; // 摇杆右平移分量 -1~1
+let controlMode = localStorage.getItem('maze_controls') === 'stick' ? 'stick' : 'pad';
+let stickTouchId = null;
+let lookTouchId = null;
+let lookLastX = 0;
+
+const TURN_SPEED = 2.4;      // 弧度/秒
+const LOOK_SENS = 0.007;     // 摇杆模式：滑动转向，弧度/像素
+const STICK_DEADZONE = 0.12;
+const EYE_HEIGHT = 16;       // 视高（世界单位，1 单位 ≈ 0.1m）
+const WALL_HEIGHT = 28;      // 墙高 ≈ 2.8m
+const WALL_THICK = 0.6;
+
+let camX = 0, camZ = 0;
+let camInit = false;
+
+// ================= Three.js =================
+const canvas = document.getElementById('cvs');
+let renderer = null;
+try {
+  renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setClearColor(0x05080e);
+} catch (error) {
+  loadingEl.textContent = '无法启动 3D 画面，请使用支持 WebGL 的浏览器';
+}
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(78, 1, 0.5, 3000);
+camera.rotation.order = 'YXZ';
+
+// 光照
+scene.add(new THREE.AmbientLight(0x8899bb, 0.9));
+const dl1 = new THREE.DirectionalLight(0xffffff, 0.7);
+dl1.position.set(0.5, 1, 0.3);
+scene.add(dl1);
+const dl2 = new THREE.DirectionalLight(0x6e8fd8, 0.4);
+dl2.position.set(-0.5, 0.8, -0.5);
+scene.add(dl2);
+
+let mazeGroup = null;
+let fireGroup = null;
+let smokeGroup = null;
+let crowdMesh = null;
+let crowdCap = 0;
+const crowdGeom = new THREE.CapsuleGeometry(2.2, 7, 3, 6);
+const crowdMat = new THREE.MeshLambertMaterial();
+const dummyObj = new THREE.Object3D();
+const tmpColor = new THREE.Color();
+let lastFireKey = '';
+let lastSmokeKey = '';
+let smokeByCell = new Map();
+let baseFogDist = 200;
+const smokeVeil = document.getElementById('smokeVeil');
+
+function clearMaze() {
+  if (mazeGroup) {
+    scene.remove(mazeGroup);
+    mazeGroup.traverse(obj => {
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+        else obj.material.dispose();
+      }
+    });
+    mazeGroup = null;
+  }
+}
+
+function buildMaze() {
+  clearMaze();
+  mazeGroup = new THREE.Group();
+
+  // 地板
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(WORLD_W, WORLD_H),
+    new THREE.MeshLambertMaterial({ color: 0x1a2236 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(WORLD_W / 2, 0, WORLD_H / 2);
+  mazeGroup.add(floor);
+
+  // 地板网格
+  const gridPts = [];
+  for (let x = 0; x <= MW; x++) {
+    gridPts.push(new THREE.Vector3(x * CELL, 0.1, 0));
+    gridPts.push(new THREE.Vector3(x * CELL, 0.1, WORLD_H));
+  }
+  for (let y = 0; y <= MH; y++) {
+    gridPts.push(new THREE.Vector3(0, 0.1, y * CELL));
+    gridPts.push(new THREE.Vector3(WORLD_W, 0.1, y * CELL));
+  }
+  const grid = new THREE.LineSegments(
+    new THREE.BufferGeometry().setFromPoints(gridPts),
+    new THREE.LineBasicMaterial({ color: 0x26304a, transparent: true, opacity: 0.6 })
+  );
+  mazeGroup.add(grid);
+
+  // 天花板
+  const ceil = new THREE.Mesh(
+    new THREE.PlaneGeometry(WORLD_W, WORLD_H),
+    new THREE.MeshBasicMaterial({ color: 0x0a0e1a, side: THREE.DoubleSide })
+  );
+  ceil.rotation.x = Math.PI / 2;
+  ceil.position.set(WORLD_W / 2, WALL_HEIGHT + 2, WORLD_H / 2);
+  mazeGroup.add(ceil);
+
+  // 墙：每面只实例化一次（北/西，外沿再补南/东）
+  if (walls) {
+    let count = 0;
+    for (let y = 0; y < MH; y++) {
+      for (let x = 0; x < MW; x++) {
+        const w = walls[y][x];
+        if (w & 1) count++;
+        if (w & 8) count++;
+        if (x === MW - 1 && (w & 2)) count++;
+        if (y === MH - 1 && (w & 4)) count++;
+      }
+    }
+    const wallGeom = new THREE.BoxGeometry(1, 1, 1);
+    const wallMat = new THREE.MeshLambertMaterial({ color: 0x5068a0 });
+    const mesh = new THREE.InstancedMesh(wallGeom, wallMat, count);
+    mesh.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    mesh.frustumCulled = false;
+
+    const dummy = new THREE.Object3D();
+    dummy.rotation.set(0, 0, 0);
+    let i = 0;
+    const place = (x, y, z, sx, sy, sz) => {
+      dummy.position.set(x, y, z);
+      dummy.scale.set(sx, sy, sz);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i++, dummy.matrix);
+    };
+    for (let y = 0; y < MH; y++) {
+      for (let x = 0; x < MW; x++) {
+        const w = walls[y][x];
+        const px = x * CELL, py = y * CELL;
+        if (w & 1) place(px + CELL/2, WALL_HEIGHT/2, py, CELL, WALL_HEIGHT, WALL_THICK);
+        if (w & 8) place(px, WALL_HEIGHT/2, py + CELL/2, WALL_THICK, WALL_HEIGHT, CELL);
+        if (x === MW - 1 && (w & 2)) {
+          place(px + CELL, WALL_HEIGHT/2, py + CELL/2, WALL_THICK, WALL_HEIGHT, CELL);
+        }
+        if (y === MH - 1 && (w & 4)) {
+          place(px + CELL/2, WALL_HEIGHT/2, py + CELL, CELL, WALL_HEIGHT, WALL_THICK);
+        }
+      }
+    }
+    mesh.count = i;
+    mesh.instanceMatrix.needsUpdate = true;
+    mazeGroup.add(mesh);
+  }
+
+  // 多出口：每个出口都有地面标记和光柱。
+  EXITS.forEach(([gx, gy]) => {
+    const ex = gx * CELL + CELL / 2;
+    const ez = gy * CELL + CELL / 2;
+    const exitFloor = new THREE.Mesh(
+      new THREE.PlaneGeometry(CELL * 0.9, CELL * 0.9),
+      new THREE.MeshBasicMaterial({ color: 0x2ee060 })
+    );
+    exitFloor.rotation.x = -Math.PI / 2;
+    exitFloor.position.set(ex, 0.15, ez);
+    mazeGroup.add(exitFloor);
+    const exitPillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(CELL * 0.35, CELL * 0.35, 80, 16, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0x50ff78, transparent: true, opacity: 0.22,
+        side: THREE.DoubleSide, depthWrite: false
+      })
+    );
+    exitPillar.position.set(ex, 40, ez);
+    mazeGroup.add(exitPillar);
+  });
+
+  scene.add(mazeGroup);
+
+  // 雾效 = 视野限制；进入烟气后会再缩短。
+  baseFogDist = Math.max(VIEW_W * 1.4, CELL * 4);
+  scene.fog = new THREE.Fog(0x05080e, baseFogDist * 0.35, baseFogDist);
+  camera.far = baseFogDist * 1.3;
+  camera.updateProjectionMatrix();
+
+  camInit = false;
+}
+
+// ================= 尺寸 =================
+function resize() {
+  if (!renderer) return;
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+resize();
+
+// ================= 输入 =================
+function bindHold(el, onDown, onUp) {
+  let active = false;
+  const down = e => {
+    e.preventDefault();
+    if (active) return;
+    active = true;
+    el.classList.add('active');
+    onDown();
+  };
+  const up = e => {
+    e.preventDefault();
+    if (!active) return;
+    active = false;
+    el.classList.remove('active');
+    onUp();
+  };
+  el.addEventListener('touchstart', down, { passive: false });
+  el.addEventListener('touchend', up, { passive: false });
+  el.addEventListener('touchcancel', up, { passive: false });
+  el.addEventListener('mousedown', down);
+  el.addEventListener('mouseup', up);
+  el.addEventListener('mouseleave', up);
+  window.addEventListener('blur', up);
+  document.addEventListener('visibilitychange', e => { if (document.hidden) up(e); });
+  el.addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') down(e); });
+  el.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') up(e); });
+  el.addEventListener('blur', up);
+}
+
+// 修正后的转向绑定：◀ 对应 +1（左转），▶ 对应 -1（右转）
+bindHold(document.getElementById('btnLeft'),
+  () => turnDir = +1, () => { if (turnDir === +1) turnDir = 0; });
+bindHold(document.getElementById('btnRight'),
+  () => turnDir = -1, () => { if (turnDir === -1) turnDir = 0; });
+bindHold(document.getElementById('btnFwd'),
+  () => { moveDir = +1; sendInput(true); },
+  () => { if (moveDir === +1) { moveDir = 0; sendInput(true); } });
+bindHold(document.getElementById('btnBack'),
+  () => { moveDir = -1; sendInput(true); },
+  () => { if (moveDir === -1) { moveDir = 0; sendInput(true); } });
+
+// 电脑上调试用
+window.addEventListener('keydown', e => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === 'arrowleft' || k === 'a') turnDir = +1;
+  if (k === 'arrowright' || k === 'd') turnDir = -1;
+  if (k === 'arrowup' || k === 'w') { moveDir = +1; sendInput(true); }
+  if (k === 'arrowdown' || k === 's') { moveDir = -1; sendInput(true); }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if ((k === 'arrowleft' || k === 'a') && turnDir === +1) turnDir = 0;
+  if ((k === 'arrowright' || k === 'd') && turnDir === -1) turnDir = 0;
+  if ((k === 'arrowup' || k === 'w') && moveDir === +1) { moveDir = 0; sendInput(true); }
+  if ((k === 'arrowdown' || k === 's') && moveDir === -1) { moveDir = 0; sendInput(true); }
+});
+
+const padControls = document.getElementById('padControls');
+const stickControls = document.getElementById('stickControls');
+const stickZone = document.getElementById('stickZone');
+const stickBase = document.getElementById('stickBase');
+const stickKnob = document.getElementById('stickKnob');
+const lookZone = document.getElementById('lookZone');
+const lookPad = document.getElementById('lookPad');
+const modePad = document.getElementById('modePad');
+const modeStick = document.getElementById('modeStick');
+
+function wrapYaw(value) {
+  while (value > Math.PI) value -= Math.PI * 2;
+  while (value < -Math.PI) value += Math.PI * 2;
+  return value;
+}
+
+function resetStickVisual() {
+  stickTouchId = null;
+  moveFwd = 0;
+  moveStrafe = 0;
+  stickBase.classList.remove('active');
+  stickBase.style.left = '';
+  stickBase.style.top = '';
+  stickKnob.style.transform = '';
+}
+
+function resetLookVisual() {
+  lookTouchId = null;
+  lookPad.classList.remove('active');
+}
+
+function setControlMode(mode, persist = true) {
+  controlMode = mode === 'stick' ? 'stick' : 'pad';
+  if (persist) localStorage.setItem('maze_controls', controlMode);
+  padControls.hidden = controlMode !== 'pad';
+  stickControls.hidden = controlMode !== 'stick';
+  modePad.classList.toggle('active', controlMode === 'pad');
+  modeStick.classList.toggle('active', controlMode === 'stick');
+  modePad.setAttribute('aria-checked', String(controlMode === 'pad'));
+  modeStick.setAttribute('aria-checked', String(controlMode === 'stick'));
+  releaseControls();
+}
+
+function eventPoint(e, id) {
+  const touches = e.touches || e.changedTouches;
+  if (touches) {
+    if (id == null) return e.changedTouches ? e.changedTouches[0] : touches[0];
+    for (let i = 0; i < touches.length; i++) {
+      if (touches[i].identifier === id) return touches[i];
+    }
+    if (e.changedTouches) {
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === id) return e.changedTouches[i];
+      }
+    }
+    return null;
+  }
+  if (id != null && id !== 'mouse') return null;
+  return e;
+}
+
+function placeStick(clientX, clientY) {
+  const zone = stickZone.getBoundingClientRect();
+  const size = stickBase.offsetWidth || 128;
+  const x = Math.min(zone.width - size / 2, Math.max(size / 2, clientX - zone.left));
+  const y = Math.min(zone.height - size / 2, Math.max(size / 2, clientY - zone.top));
+  stickBase.classList.add('active');
+  stickBase.style.left = x + 'px';
+  stickBase.style.top = y + 'px';
+}
+
+function updateStick(clientX, clientY) {
+  const rect = stickBase.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const maxR = Math.max(24, rect.width / 2 - 29);
+  let dx = clientX - cx;
+  let dy = clientY - cy;
+  const dist = Math.hypot(dx, dy);
+  if (dist > maxR && dist > 1e-6) {
+    dx *= maxR / dist;
+    dy *= maxR / dist;
+  }
+  stickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  let nx = dx / maxR;
+  let ny = dy / maxR;
+  const mag = Math.hypot(nx, ny);
+  if (mag < STICK_DEADZONE) {
+    moveFwd = 0;
+    moveStrafe = 0;
+  } else {
+    const scaled = (mag - STICK_DEADZONE) / (1 - STICK_DEADZONE);
+    nx = nx / mag * scaled;
+    ny = ny / mag * scaled;
+    moveStrafe = Math.max(-1, Math.min(1, nx));
+    moveFwd = Math.max(-1, Math.min(1, -ny));
+  }
+  sendInput(true);
+}
+
+let lastTouchAt = 0;
+function bindZone(zone, onStart, onMove, onEnd) {
+  const down = e => {
+    if (controlMode !== 'stick') return;
+    if (e.changedTouches || e.touches) {
+      lastTouchAt = performance.now();
+    } else {
+      if (e.button !== 0) return;
+      if (performance.now() - lastTouchAt < 800) return;
+    }
+    e.preventDefault();
+    onStart(e);
+  };
+  zone.addEventListener('touchstart', down, { passive: false });
+  zone.addEventListener('mousedown', down);
+  window.addEventListener('touchmove', e => {
+    if (controlMode !== 'stick') return;
+    onMove(e);
+  }, { passive: false });
+  window.addEventListener('mousemove', e => {
+    if (controlMode !== 'stick') return;
+    onMove(e);
+  });
+  const up = e => onEnd(e);
+  window.addEventListener('touchend', up);
+  window.addEventListener('touchcancel', up);
+  window.addEventListener('mouseup', up);
+}
+
+bindZone(stickZone, e => {
+  if (stickTouchId != null) return;
+  const t = eventPoint(e, null);
+  if (!t) return;
+  stickTouchId = t.identifier ?? 'mouse';
+  placeStick(t.clientX, t.clientY);
+  updateStick(t.clientX, t.clientY);
+}, e => {
+  if (stickTouchId == null) return;
+  const t = eventPoint(e, stickTouchId);
+  if (!t) return;
+  if (e.cancelable) e.preventDefault();
+  updateStick(t.clientX, t.clientY);
+}, e => {
+  if (stickTouchId == null) return;
+  if (stickTouchId === 'mouse') {
+    if (e.touches) return;
+  } else if (!e.changedTouches || ![...e.changedTouches].some(t => t.identifier === stickTouchId)) {
+    return;
+  }
+  resetStickVisual();
+  sendInput(true);
+});
+
+bindZone(lookZone, e => {
+  if (lookTouchId != null) return;
+  const t = eventPoint(e, null);
+  if (!t) return;
+  lookTouchId = t.identifier ?? 'mouse';
+  lookLastX = t.clientX;
+  lookPad.classList.add('active');
+}, e => {
+  if (lookTouchId == null) return;
+  const t = eventPoint(e, lookTouchId);
+  if (!t) return;
+  if (e.cancelable) e.preventDefault();
+  yaw = wrapYaw(yaw - (t.clientX - lookLastX) * LOOK_SENS);
+  lookLastX = t.clientX;
+}, e => {
+  if (lookTouchId == null) return;
+  if (lookTouchId === 'mouse') {
+    if (e.touches) return;
+  } else if (!e.changedTouches || ![...e.changedTouches].some(t => t.identifier === lookTouchId)) {
+    return;
+  }
+  resetLookVisual();
+});
+
+modePad.addEventListener('click', () => { setControlMode('pad'); modePad.blur(); });
+modeStick.addEventListener('click', () => { setControlMode('stick'); modeStick.blur(); });
+
+// ================= WebSocket =================
+let ws;
+let reconnectTimer = null, retryDelay = 1000, connectionReplaced = false;
+function releaseControls() {
+  document.querySelectorAll('#padControls .btn').forEach(b => {
+    b.dispatchEvent(new Event('mouseup'));
+    b.dispatchEvent(new Event('touchcancel'));
+  });
+  moveDir = turnDir = 0;
+  resetStickVisual();
+  resetLookVisual();
+  document.querySelectorAll('.btn.active').forEach(b => b.classList.remove('active'));
+  sendInput(true);
+}
+window.addEventListener('blur', releaseControls);
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseControls(); });
+function connect() {
+  if (connectionReplaced || (ws && (ws.readyState === 0 || ws.readyState === 1))) return;
+  clearTimeout(reconnectTimer);
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(
+    `${proto}://${location.host}/ws/player?pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}`
+    + `&participant=${encodeURIComponent(participant)}&consent=${consentGiven ? 'true' : 'false'}`
+  );
+  ws.onopen = () => { retryDelay = 1000; statusEl.textContent = '已连接'; releaseControls(); };
+  ws.onclose = event => {
+    releaseControls();
+    if (event.code === 4001 || event.code === 4003) {
+      connectionReplaced = true;
+      statusEl.textContent = event.code === 4001 ? '此玩家已在另一页面连接，请关闭此页' : '人数已满，请稍后刷新';
+      return;
+    }
+    if (event.code === 4004 || event.code === 4005) {
+      // 参与者信息缺失或未同意：停掉重连，重新弹出参与须知。
+      connectionReplaced = true;
+      consentGiven = false;
+      localStorage.removeItem('maze_consent');
+      statusEl.textContent = event.code === 4004 ? '缺少参与者编号' : '尚未确认知情同意';
+      showConsentLayer();
+      return;
+    }
+    statusEl.textContent = '断开，重连中…';
+    reconnectTimer = setTimeout(connect, retryDelay + Math.random() * 300);
+    retryDelay = Math.min(retryDelay * 2, 15000);
+  };
+  ws.onerror = () => { statusEl.textContent = '连接错误'; };
+  ws.onmessage = ev => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'init' || msg.type === 'maze') {
+      CELL = msg.cell; MW = msg.mw; MH = msg.mh;
+      WORLD_W = msg.world.w; WORLD_H = msg.world.h;
+      VIEW_W = msg.view.w; VIEW_H = msg.view.h;
+      walls = msg.walls; EXITS = msg.exits || [msg.exit];
+      lastFireKey = null;
+      lastSmokeKey = null;
+      winBanner.style.background = 'rgba(30,200,90,0.95)';
+      winBanner.style.display = 'none';
+      hasWon = false;
+
+      if (msg.type === 'init') {
+        myColor = msg.you.color;
+        youEl.textContent = msg.you.name;
+        youEl.style.color = myColor;
+      } else {
+        hasWon = false;
+        winBanner.style.display = 'none';
+      }
+
+      buildMaze();
+      loadingEl.style.display = 'none';
+      applyCrowdState(msg);
+    } else if (msg.type === 'state') {
+      applyCrowdState(msg);
+    }
+  };
+}
+
+function updateVitals() {
+  const hp = me ? Math.max(0, Math.min(1, me.hp == null ? 1 : me.hp)) : 1;
+  const sm = me ? Math.max(0, Math.min(1, me.sc || 0)) : 0;
+  hpFill.style.width = (hp * 100) + '%';
+  hpFill.style.background = hp < 0.35 ? '#ff4f5e' : (hp < 0.65 ? '#f0c14a' : '#3ee07a');
+  smFill.style.width = (sm * 100) + '%';
+  if (!me) { vitalNote.textContent = ''; return; }
+  if (me.failed) vitalNote.textContent = me.cause === 'fire' ? '已在火中倒下' : '已因烟气倒下';
+  else if (hp < 0.65) vitalNote.textContent = '受伤，尽快离开烟火';
+  else if (sm >= 0.08) vitalNote.textContent = '正在吸入烟气';
+  else vitalNote.textContent = '';
+}
+
+youEl.addEventListener('click', () => {
+  const next = window.prompt('玩家名称', name);
+  if (next == null) return;
+  const trimmed = String(next).trim().slice(0, 12);
+  if (!trimmed) return;
+  name = trimmed;
+  localStorage.setItem('maze_name', name);
+  youEl.textContent = name;
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'rename', name }));
+});
+
+function applyCrowdState(msg) {
+  const list = msg.agents || msg.players || [];
+  if (msg.phase === 'running') statusEl.textContent = '疏散中 ' + (msg.escaped || 0) + '/' + (msg.n ?? list.length);
+  else if (msg.phase === 'ended') statusEl.textContent = '已结束 逃出' + (msg.escaped || 0);
+  else if (msg.phase === 'paused') statusEl.textContent = '已暂停';
+  else if (msg.phase === 'idle') statusEl.textContent = '待命，等待主机开始';
+
+  if (msg.time_scale != null) statusEl.textContent += ' · ' + msg.time_scale + '×';
+  if (msg.wind && Number(msg.wind.speed) > 0.05) {
+    statusEl.textContent += ' · 风 ' + Number(msg.wind.speed).toFixed(1) + 'm/s';
+  }
+
+  for (const p of list) {
+    if (p.pid !== pid) continue;
+    me = { pid, x: p.x, y: p.y, vx: p.vx || 0, vy: p.vy || 0, won: !!p.e, failed: !!p.f,
+           hp: p.hp == null ? 1 : p.hp, sc: p.sc == null ? 0 : p.sc, cause: p.cause || '' };
+    updateVitals();
+    if (p.e && !hasWon) {
+      hasWon = true;
+      winBanner.textContent = '已安全撤离';
+      winBanner.style.background = 'rgba(30,200,90,0.95)';
+      winBanner.style.display = 'block';
+    } else if (p.f) {
+      winBanner.textContent = p.cause === 'fire' ? '走进火源，未能撤离' : '吸入烟气，未能撤离';
+      winBanner.style.background = 'rgba(180,40,40,0.95)';
+      winBanner.style.display = 'block';
+    } else if (!p.e && !p.f) {
+      hasWon = false;
+      winBanner.style.display = 'none';
+    }
+    break;
+  }
+  updateCrowd(list);
+  if (Array.isArray(msg.smoke)) updateSmoke(msg.smoke);
+  if (Array.isArray(msg.fire)) updateFire(msg.fire);
+  applyLocalSmoke();
+}
+
+function updateCrowd(list) {
+  const n = Math.max(list.length, 1);
+  if (!crowdMesh || crowdCap < n) {
+    if (crowdMesh) { scene.remove(crowdMesh); crowdMesh.dispose(); }
+    crowdCap = n;
+    crowdMesh = new THREE.InstancedMesh(crowdGeom, crowdMat, n);
+    crowdMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    crowdMesh.frustumCulled = false;
+    scene.add(crowdMesh);
+  }
+  let i = 0;
+  for (const p of list) {
+    if (p.pid === pid) continue;
+    dummyObj.position.set(p.x, 5.5, p.y);
+    dummyObj.scale.set(p.f ? 0.001 : 1, p.f ? 0.001 : 1, p.f ? 0.001 : 1);
+    dummyObj.updateMatrix();
+    crowdMesh.setMatrixAt(i, dummyObj.matrix);
+    tmpColor.set(p.e ? '#50ff78' : (p.c || '#7a8bab'));
+    crowdMesh.setColorAt(i, tmpColor);
+    i++;
+  }
+  crowdMesh.count = i;
+  crowdMesh.instanceMatrix.needsUpdate = true;
+  if (crowdMesh.instanceColor) crowdMesh.instanceColor.needsUpdate = true;
+}
+
+function disposeInstanced(mesh) {
+  if (!mesh) return;
+  scene.remove(mesh);
+  if (mesh.geometry) mesh.geometry.dispose();
+  if (mesh.material) mesh.material.dispose();
+  if (mesh.dispose) mesh.dispose();
+}
+
+function updateFire(cells) {
+  const key = cells.map(c => c[0] + ',' + c[1]).join(';');
+  if (key === lastFireKey) return;
+  lastFireKey = key;
+  disposeInstanced(fireGroup);
+  fireGroup = null;
+  if (!cells.length) return;
+  const geom = new THREE.BoxGeometry(CELL * 0.86, 14, CELL * 0.86);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xff4a1a, transparent: true, opacity: 0.5, depthWrite: false,
+  });
+  fireGroup = new THREE.InstancedMesh(geom, mat, cells.length);
+  fireGroup.frustumCulled = false;
+  cells.forEach((c, i) => {
+    dummyObj.position.set((c[0] + 0.5) * CELL, 7, (c[1] + 0.5) * CELL);
+    dummyObj.scale.set(1, 1, 1);
+    dummyObj.updateMatrix();
+    fireGroup.setMatrixAt(i, dummyObj.matrix);
+  });
+  fireGroup.instanceMatrix.needsUpdate = true;
+  scene.add(fireGroup);
+}
+
+function updateSmoke(cells) {
+  smokeByCell.clear();
+  for (const c of cells) {
+    smokeByCell.set(c[0] + ',' + c[1], Number(c[2]) || 0);
+  }
+  const key = cells.map(c => c[0] + ',' + c[1] + ',' + Math.round((c[2] || 0) * 8)).join(';');
+  if (key === lastSmokeKey) return;
+  lastSmokeKey = key;
+  disposeInstanced(smokeGroup);
+  smokeGroup = null;
+  if (!cells.length) return;
+  const geom = new THREE.SphereGeometry(1, 8, 6);
+  const mat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+  });
+  smokeGroup = new THREE.InstancedMesh(geom, mat, cells.length * 2);
+  smokeGroup.frustumCulled = false;
+  dummyObj.rotation.set(0, 0, 0);
+  let i = 0;
+  for (const c of cells) {
+    const v = Math.max(0.03, Math.min(1, Number(c[2]) || 0));
+    const cx = (c[0] + 0.5) * CELL;
+    const cz = (c[1] + 0.5) * CELL;
+    dummyObj.position.set(cx, 7 + 8 * v, cz);
+    dummyObj.scale.set(CELL * (0.42 + 0.5 * v), CELL * (0.26 + 0.38 * v), CELL * (0.42 + 0.5 * v));
+    dummyObj.updateMatrix();
+    smokeGroup.setMatrixAt(i, dummyObj.matrix);
+    tmpColor.setRGB(0.34 + 0.22 * v, 0.35 + 0.16 * v, 0.38);
+    smokeGroup.setColorAt(i, tmpColor);
+    i += 1;
+    dummyObj.position.set(cx + CELL * 0.1, 16 + 20 * v, cz - CELL * 0.08);
+    dummyObj.scale.set(CELL * (0.32 + 0.48 * v), CELL * (0.2 + 0.32 * v), CELL * (0.32 + 0.48 * v));
+    dummyObj.updateMatrix();
+    smokeGroup.setMatrixAt(i, dummyObj.matrix);
+    tmpColor.setRGB(0.42 + 0.2 * v, 0.42 + 0.14 * v, 0.45);
+    smokeGroup.setColorAt(i, tmpColor);
+    i += 1;
+  }
+  smokeGroup.count = i;
+  smokeGroup.instanceMatrix.needsUpdate = true;
+  if (smokeGroup.instanceColor) smokeGroup.instanceColor.needsUpdate = true;
+  scene.add(smokeGroup);
+}
+
+function smokeAt(x, y) {
+  if (!CELL) return 0;
+  return smokeByCell.get(Math.floor(x / CELL) + ',' + Math.floor(y / CELL)) || 0;
+}
+
+function applyLocalSmoke() {
+  const sm = (me && !me.won && !me.failed) ? smokeAt(me.x, me.y) : 0;
+  if (smokeVeil) smokeVeil.style.opacity = String(Math.min(0.84, sm * 0.95));
+  if (!scene.fog) return;
+  const cut = 1 - 0.72 * sm;
+  const far = Math.max(CELL * 2.2, baseFogDist * cut);
+  scene.fog.near = Math.max(2, far * 0.22);
+  scene.fog.far = far;
+  scene.fog.color.set(sm > 0.08 ? 0x3c3f48 : 0x05080e);
+  camera.far = far * 1.35;
+  camera.updateProjectionMatrix();
+}
+
+// 移动中 50ms 一次；静止时 1s 心跳，避免被标离线
+let lastSentX = 999, lastSentY = 999, lastSendAt = 0;
+function sendInput(force = false) {
+  if (!ws || ws.readyState !== 1) return;
+  const fwd = Math.max(-1, Math.min(1, moveDir + moveFwd));
+  const strafe = Math.max(-1, Math.min(1, moveStrafe));
+  let x = 0, y = 0;
+  if (fwd !== 0 || strafe !== 0) {
+    // yaw = 0 时相机看向 -Z（即世界 -y 方向）
+    x = -Math.sin(yaw) * fwd + Math.cos(yaw) * strafe;
+    y = -Math.cos(yaw) * fwd - Math.sin(yaw) * strafe;
+    const n = Math.hypot(x, y);
+    if (n > 1) { x /= n; y /= n; }
+    x = Math.round(x * 100) / 100;
+    y = Math.round(y * 100) / 100;
+  }
+  const now = performance.now();
+  if (!force && x === lastSentX && y === lastSentY && now - lastSendAt < 1000) return;
+  lastSentX = x; lastSentY = y; lastSendAt = now;
+  ws.send(JSON.stringify({ type: 'input', x, y }));
+}
+setInterval(() => sendInput(moveDir !== 0 || moveFwd !== 0 || moveStrafe !== 0), 50);
+
+// ================= 主循环 =================
+let lastT = performance.now();
+function animate() {
+  requestAnimationFrame(animate);
+  if (!renderer) return;
+  if (document.hidden) { lastT = performance.now(); return; }
+  const now = performance.now();
+  const dt = Math.min((now - lastT) / 1000, 0.1);
+  lastT = now;
+
+  // 转向
+  if (turnDir !== 0) {
+    yaw = wrapYaw(yaw + turnDir * TURN_SPEED * dt);
+  }
+
+  // 相机跟随（平滑）；不操作时朝向奔跑方向
+  if (me) {
+    if (!camInit) {
+      camX = me.x; camZ = me.y; camInit = true;
+    } else {
+      const k = 1 - Math.pow(0.001, dt);
+      camX += (me.x - camX) * k;
+      camZ += (me.y - camZ) * k;
+    }
+    const userSteering = turnDir !== 0 || lookTouchId != null
+      || moveDir !== 0 || moveFwd !== 0 || moveStrafe !== 0;
+    if (!userSteering && (me.vx || me.vy)) {
+      const target = Math.atan2(-me.vx, -me.vy);
+      let dYaw = target - yaw;
+      while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+      while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+      yaw += dYaw * Math.min(1, 4 * dt);
+    }
+    camera.position.set(camX, EYE_HEIGHT, camZ);
+    camera.rotation.y = yaw;
+    applyLocalSmoke();
+  }
+
+  renderer.render(scene, camera);
+}
+
+function persistYaw() {
+  localStorage.setItem('maze_yaw', yaw);
+}
+setInterval(persistYaw, 500);
+window.addEventListener('pagehide', persistYaw);
+
+setControlMode(controlMode, false);
+
+// ---- 知情同意 / 参与者编号 ----
+const consentLayer = document.getElementById('consentLayer');
+const participantInput = document.getElementById('participantInput');
+const consentCheck = document.getElementById('consentCheck');
+const consentBtn = document.getElementById('consentBtn');
+const consentError = document.getElementById('consentError');
+
+function refreshConsentButton() {
+  consentBtn.disabled = !(participantInput.value.trim() && consentCheck.checked);
+}
+function showConsentLayer() {
+  participantInput.value = participant;
+  consentCheck.checked = false;
+  consentError.textContent = '';
+  refreshConsentButton();
+  consentLayer.classList.remove('hidden');
+}
+participantInput.addEventListener('input', refreshConsentButton);
+consentCheck.addEventListener('change', refreshConsentButton);
+consentBtn.addEventListener('click', () => {
+  const value = participantInput.value.trim();
+  if (!value) { consentError.textContent = '请填写参与者编号'; return; }
+  if (!consentCheck.checked) { consentError.textContent = '请先勾选同意'; return; }
+  participant = value;
+  consentGiven = true;
+  localStorage.setItem('maze_participant', participant);
+  localStorage.setItem('maze_consent', '1');
+  consentLayer.classList.add('hidden');
+  connectionReplaced = false;
+  connect();
+});
+
+if (!participant || !consentGiven) {
+  showConsentLayer();
+} else {
+  connect();
+}
+animate();
+</script>
+</body>
+</html>

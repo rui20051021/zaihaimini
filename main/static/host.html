@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>迷宫 · 主机大屏</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; background:#070b14; color:#e8eefc;
+    font-family:system-ui,"Microsoft YaHei",sans-serif; overflow:hidden; }
+  #app { display:flex; height:100%; min-height:0; }
+
+  #wrap { flex:1 1 auto; min-width:0; min-height:0; position:relative; overflow:hidden; }
+  #cvs { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #hud {
+    position:absolute; left:16px; top:16px; z-index:2;
+    pointer-events:none; text-shadow:0 1px 8px #000;
+  }
+  #hud .title { font-size:15px; font-weight:700; letter-spacing:.04em; color:#f2f6ff; }
+  #hud .meta { margin-top:4px; font-size:12px; color:#9eb0d0; }
+
+  #panel {
+    flex:0 0 340px; width:340px; min-width:340px;
+    background:linear-gradient(180deg,#10182a 0%,#0b1220 100%);
+    border-left:1px solid #2a3a5c;
+    padding:18px 16px 20px;
+    overflow-y:auto; display:flex; flex-direction:column;
+    box-shadow:-12px 0 32px rgba(0,0,0,.35);
+  }
+  .head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  h2 { font-size:17px; font-weight:700; }
+  #status {
+    display:inline-flex; align-items:center; gap:6px;
+    font-size:12px; color:#8fa3c8;
+    background:#151d30; border:1px solid #2a3a5c;
+    border-radius:999px; padding:4px 10px;
+  }
+  #status::before {
+    content:""; width:7px; height:7px; border-radius:50%;
+    background:#f0c14a; box-shadow:0 0 8px #f0c14a;
+  }
+  #status.ok { color:#b8f0c8; }
+  #status.ok::before { background:#3ee07a; box-shadow:0 0 8px #3ee07a; }
+  #status.warn::before { background:#ff6b6b; box-shadow:0 0 8px #ff6b6b; }
+
+  .qr-box { background:#fff; padding:12px; border-radius:12px; text-align:center; margin-bottom:8px; }
+  .qr-box img { width:100%; height:auto; aspect-ratio:1/1; display:block; border-radius:4px; }
+  .play-url {
+    font-size:12px; color:#8ec4ff; background:#151d30;
+    border:1px solid #2a3a5c; border-radius:8px;
+    padding:8px 10px; margin-bottom:14px;
+    word-break:break-all; user-select:all; text-align:center;
+  }
+  .qr-box + .play-url { margin-top:0; }
+  .hint-sm { font-size:11px; color:#7b8dad; text-align:center; margin:-6px 0 14px; }
+
+  h3 { font-size:12px; color:#8fa3c8; margin:4px 0 8px; font-weight:600;
+    text-transform:uppercase; letter-spacing:.08em; }
+
+  .winner-banner { background:linear-gradient(135deg,#1e6b3a,#2ba353);
+    padding:10px 12px; border-radius:8px; margin-bottom:12px;
+    font-size:13px; display:none; }
+
+  .setting { margin-bottom:12px; }
+  .setting label { display:flex; justify-content:space-between;
+    font-size:12px; color:#a8b8d8; margin-bottom:6px; }
+  .setting label b { color:#8ec4ff; font-size:13px; }
+  .setting .range-hint { display:flex; justify-content:space-between;
+    font-size:10px; color:#5d6f8e; margin-top:2px; }
+  .setting input[type=range] { width:100%; accent-color:#4a80d8; }
+  .setting select, .setting input[type=number] { width:100%; padding:8px; border-radius:8px; border:1px solid #2a3a5c;
+    background:#151d30; color:#e8eefc; font:inherit; }
+
+  #players { min-height:42px; }
+  .player { display:flex; align-items:center; gap:8px; padding:7px 0;
+    font-size:13px; border-bottom:1px solid #1a2236; }
+  .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .offline { opacity:.4; }
+  .won-tag { color:#50ff78; font-weight:bold; font-size:11px; margin-left:4px; }
+  .empty { font-size:12px; color:#6a7c9c; padding:8px 0 4px; }
+
+  button, a.btn {
+    display:block; width:100%; padding:9px 10px; background:#1a2340;
+    color:#e8eefc; border:1px solid #2a3a5c; border-radius:8px;
+    cursor:pointer; font-size:13px; margin-top:8px; text-align:center;
+    text-decoration:none; font-family:inherit;
+  }
+  button:hover, a.btn:hover { background:#24325a; }
+  button.primary { background:#1f6a3a; border-color:#3a9a58; font-weight:600; }
+  button.primary:hover { background:#26844a; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+
+  .hint { font-size:11px; color:#607599; margin-top:12px; line-height:1.55; }
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px; }
+  .stat-grid div {
+    background:#151d30; border:1px solid #2a3a5c; border-radius:8px;
+    padding:8px 10px;
+  }
+  .stat-grid b { display:block; font-size:16px; color:#e8eefc; }
+  .stat-grid span { font-size:10px; color:#7b8dad; letter-spacing:.06em; }
+  .risk-strip { position:absolute; left:16px; bottom:16px; z-index:3; width:min(650px,calc(100% - 32px)); display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; padding:8px; background:rgba(8,14,28,.82); border:1px solid rgba(120,150,210,.28); border-radius:10px; backdrop-filter:blur(10px); box-shadow:0 8px 24px rgba(0,0,0,.28); pointer-events:none; }
+  .risk-strip div { background:#151d30; border:1px solid #2a3a5c; border-radius:7px; padding:7px 6px; text-align:center; }
+  .risk-strip b { display:block; font-size:13px; color:#e8eefc; }
+  .risk-strip span { display:block; font-size:9px; color:#7b8dad; margin-top:2px; }
+  .legend { position:absolute; right:16px; bottom:18px; z-index:3; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px 10px; max-width:300px; color:#9eafd0; font-size:10px; padding:7px 9px; background:rgba(8,14,28,.72); border:1px solid rgba(120,150,210,.22); border-radius:8px; backdrop-filter:blur(8px); pointer-events:none; }
+  .legend span { display:inline-flex; align-items:center; gap:4px; }
+  .legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .assumption-note { margin:8px 0 14px; padding:9px 10px; border:1px solid #2a3a5c; border-left:3px solid #d6a84f; border-radius:7px; color:#8fa3c8; font-size:10px; line-height:1.5; background:#10182a; }
+  .assumption-note b { color:#e4c36c; font-size:11px; }
+  button:disabled { opacity:.5; cursor:wait; }
+  @media (max-width:760px) {
+    #app { flex-direction:column; }
+    #wrap { flex:1 0 45vh; }
+    #panel { width:100%; min-width:0; flex:1 1 auto; border-left:0; border-top:1px solid #2a3a5c; }
+    .qr-box { width:160px; align-self:center; }
+    .risk-strip { left:10px; bottom:10px; width:calc(100% - 20px); grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .legend { left:10px; right:auto; bottom:96px; justify-content:flex-start; max-width:calc(100% - 20px); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="wrap">
+    <canvas id="cvs" aria-label="迷宫与疏散人员位置"></canvas>
+    <div id="hud">
+      <div class="title">迷宫大屏</div>
+      <div class="meta" id="mazeMeta">等待地图…</div>
+    </div>
+    <div class="risk-strip" aria-label="风险概览">
+      <div><b id="stSmoke">0.00</b><span>平均烟气剂量</span></div>
+      <div><b id="stSmokePeak">0.00</b><span>峰值烟浓度</span></div>
+      <div><b id="stDensity">0.00</b><span>密度 人/m²</span></div>
+      <div><b id="stPressure">0</b><span>最大接触压力</span></div>
+      <div><b id="stFlow">0.00</b><span>出口 人/分钟</span></div>
+    </div>
+    <div class="legend" aria-label="地图图例">
+      <span><i style="background:#42d6ff"></i>真人</span>
+      <span><i style="background:#8090a8"></i>NPC</span>
+      <span><i style="background:#8a909c;border-radius:2px"></i>烟气</span>
+      <span><i style="background:#ffd54a"></i>正在烟中</span>
+      <span><i style="background:#ff4f5e"></i>受伤/倒下</span>
+      <span><i style="background:#ff7a28"></i>火源</span>
+    </div>
+  </div>
+  <aside id="panel">
+    <div class="head">
+      <h2>控制台</h2>
+      <div id="status" role="status" aria-live="polite">连接中…</div>
+    </div>
+    <div class="winner-banner" id="winnerBanner"></div>
+
+    <div class="qr-box">
+      <img id="qr" src="/api/qr" alt="二维码">
+    </div>
+    <div class="play-url" id="playUrl"></div>
+    <div class="hint-sm">手机扫码或打开上方地址（建议横屏）</div>
+
+    <h3>疏散实验</h3>
+    <div class="stat-grid" id="evacStats">
+      <div><b id="stPhase">待命</b><span>状态</span></div>
+      <div><b id="stTime">0.0s</b><span>仿真用时</span></div>
+      <div><b id="stOut">0</b><span>已逃出</span></div>
+      <div><b id="stFail">0</b><span>倒下</span></div>
+      <div><b id="stAlive">0</b><span>待撤离</span></div>
+    </div>
+    <div class="setting">
+      <label for="npcCount">NPC 人数 <b id="npcApplied">当前 80 人</b></label>
+      <input type="number" id="npcCount" min="0" max="300" step="1" value="80" required>
+      <button onclick="applyNpcCount()">应用人数并重置人群</button>
+      <div class="hint" style="margin-top:6px">0–300 人，真人另计。人数变化后重置本场计时与轨迹，保留地图、火源和倍速；需要的轨迹请先导出。</div>
+    </div>
+    <div class="setting">
+      <label for="simSpeed">仿真倍速 <b id="speedVal">1×</b></label>
+      <select id="simSpeed">
+        <option value="0.25">0.25× · 慢放</option>
+        <option value="0.5">0.5×</option>
+        <option value="1" selected>1× · 正常</option>
+        <option value="1.5">1.5×</option>
+        <option value="2">2×</option>
+        <option value="3">3×</option>
+        <option value="4">4× · 快放</option>
+      </select>
+      <div class="hint" style="margin-top:6px">运行中可切换。人物、火烟和计时同步变速，暂停时不推进。</div>
+    </div>
+    <div class="setting">
+      <label>恐慌系数 <b id="pVal">0.4</b></label>
+      <input type="range" aria-label="恐慌系数" id="slPanic" min="0" max="10" value="4">
+      <div class="range-hint"><span>冷静</span><span>恐慌</span></div>
+    </div>
+    <div class="setting">
+      <label>环境风场 <b id="windVal">无风</b></label>
+      <div class="row">
+        <input type="number" id="windX" min="-8" max="8" step="0.1" value="0" aria-label="风速 X，米每秒">
+        <input type="number" id="windY" min="-8" max="8" step="0.1" value="0" aria-label="风速 Y，米每秒">
+      </div>
+      <button onclick="applyWind()">应用风场</button>
+      <div class="hint" style="margin-top:6px">单位 m/s；默认无风。只对二维烟气平流近似生效。</div>
+    </div>
+    <div class="setting">
+      <label>人群起始区 <b id="spawnVal">全图随机</b></label>
+      <div class="row">
+        <input type="number" id="spawnX0" min="0" step="1" placeholder="x0" aria-label="起始区左列">
+        <input type="number" id="spawnY0" min="0" step="1" placeholder="y0" aria-label="起始区上行">
+      </div>
+      <div class="row">
+        <input type="number" id="spawnX1" min="0" step="1" placeholder="x1" aria-label="起始区右列">
+        <input type="number" id="spawnY1" min="0" step="1" placeholder="y1" aria-label="起始区下行">
+      </div>
+      <div class="row">
+        <button onclick="applySpawnZone()">应用起始区</button>
+        <button onclick="clearSpawnZone()">恢复全图</button>
+      </div>
+      <div class="hint" style="margin-top:6px">格坐标 (x0,y0)-(x1,y1)。限制起点可让不同条件下的“初始到出口距离”可比；改后需重置人群才生效。</div>
+    </div>
+    <div class="assumption-note">
+      <b>模型边界</b><br>
+      二维社会力 + 网格烟气演示。压力需要实测标定；未模拟烟层高度、浮力、CO/FED 和真实建筑规范。
+    </div>
+    <button class="primary" onclick="evacStart()">开始疏散</button>
+    <div class="row">
+      <button onclick="evacPause()">暂停/继续</button>
+      <button onclick="evacFire()">随机点火</button>
+    </div>
+    <div class="row">
+      <button onclick="resetGame(true)">重置人群</button>
+      <button onclick="resetGame(true, true)">重置并灭火</button>
+    </div>
+    <div class="hint-sm" style="text-align:left;margin:8px 0 14px">点击人员查看详情；点空地点火。真人玩家不占 NPC 名额。</div>
+
+    <h3>选中人员</h3>
+    <div id="inspect" class="assumption-note">点击地图上的人查看血量、烟气和死因。</div>
+
+    <h3>地图设置</h3>
+    <div class="setting">
+      <label>迷宫复杂度 <b id="cVal">8</b></label>
+      <input type="range" aria-label="迷宫复杂度" id="slComplexity" min="1" max="10" value="8">
+      <div class="range-hint"><span>稀疏</span><span>细密</span></div>
+    </div>
+    <div class="setting">
+      <label>手机视野 <b id="vVal">3</b></label>
+      <input type="range" aria-label="手机视野" id="slView" min="1" max="10" value="3">
+      <div class="range-hint"><span>窄</span><span>广</span></div>
+    </div>
+    <div class="setting">
+      <label for="exitCount">出口数量 <b id="eVal">1</b></label>
+      <select id="exitCount" aria-label="出口数量">
+        <option value="1" selected>1 个 · 单出口基线</option>
+        <option value="2">2 个 · 双出口</option>
+        <option value="3">3 个 · 三出口</option>
+        <option value="4">4 个 · 四出口</option>
+      </select>
+    </div>
+    <div class="setting">
+      <label for="exitLayout">出口布局</label>
+      <select id="exitLayout" aria-label="出口布局">
+        <option value="spread" selected>自动分散</option>
+        <option value="corners">四角分布</option>
+        <option value="sides">四侧分布</option>
+      </select>
+      <div class="hint" style="margin-top:6px">改变出口会重建地图并重置本场，所有出口共享逃生统计。</div>
+    </div>
+    <div class="setting">
+      <label for="seedInput">随机种子 <b id="seedVal">—</b></label>
+      <input type="number" id="seedInput" min="1" max="1999999999" step="1" placeholder="留空则随机">
+      <div class="hint" style="margin-top:6px">相同种子会生成同一张迷宫，便于对照实验。</div>
+    </div>
+    <button class="primary" onclick="restartGame()">应用设置并重开</button>
+    <div class="row">
+      <a class="btn" href="/api/scenario">导出场景 JSON</a>
+      <button onclick="document.getElementById('scenarioFile').click()">加载场景</button>
+    </div>
+    <input type="file" id="scenarioFile" accept="application/json,.json" hidden>
+
+    <h3 style="margin-top:18px">实验信息</h3>
+    <div class="assumption-note">
+      这些标签会写进本场汇总 JSON 与轨迹 CSV，用于多场次分组统计；建议每场开始前填好。
+    </div>
+    <div class="setting">
+      <label for="expId">实验编号</label>
+      <input type="text" id="expId" placeholder="例如 EXP-01">
+    </div>
+    <div class="setting">
+      <label for="expCondition">实验条件</label>
+      <input type="text" id="expCondition" placeholder="例如 low_visibility / windy">
+    </div>
+    <div class="setting">
+      <label for="expGroup">被试分组</label>
+      <input type="text" id="expGroup" placeholder="例如 A / control">
+    </div>
+    <div class="setting">
+      <label for="expOperator">主试</label>
+      <input type="text" id="expOperator" placeholder="操作者姓名">
+    </div>
+    <div class="setting">
+      <label for="expNotes">备注</label>
+      <input type="text" id="expNotes" placeholder="自由说明">
+    </div>
+    <div class="row">
+      <button onclick="saveExperiment()">保存实验信息</button>
+      <button onclick="archiveTrial()">立即归档本场</button>
+    </div>
+    <div class="hint-sm" id="expStatus" style="text-align:left;margin:8px 0 14px"></div>
+
+    <h3 style="margin-top:18px">玩家</h3>
+    <div id="players"><div class="empty">还没有玩家，请扫码加入</div></div>
+
+    <h3 style="margin-top:18px">操作</h3>
+    <a class="btn" href="/api/export?fmt=csv">导出轨迹 CSV</a>
+    <a class="btn" href="/api/export?fmt=summary">导出本场汇总 JSON</a>
+    <div class="hint">
+      NPC 自动寻找出口且不会主动走进火格；真人玩家用手机手动控制。松开后减速，仍可能受人群推挤和火源斥力影响。<br>
+      结束后会同时写入汇总 JSON 和轨迹 CSV 到 data/。
+    </div>
+  </aside>
+</div>
+<script>
+const cvs = document.getElementById('cvs');
+const ctx = cvs.getContext('2d');
+const wrap = document.getElementById('wrap');
+const statusEl = document.getElementById('status');
+const playersEl = document.getElementById('players');
+const winnerBanner = document.getElementById('winnerBanner');
+const mazeMeta = document.getElementById('mazeMeta');
+const playUrlEl = document.getElementById('playUrl');
+
+const slC = document.getElementById('slComplexity');
+const slV = document.getElementById('slView');
+const slP = document.getElementById('slPanic');
+const exitCountInput = document.getElementById('exitCount');
+const exitLayoutInput = document.getElementById('exitLayout');
+const eVal = document.getElementById('eVal');
+const cVal = document.getElementById('cVal');
+const vVal = document.getElementById('vVal');
+const pVal = document.getElementById('pVal');
+const stSmoke = document.getElementById('stSmoke');
+const stSmokePeak = document.getElementById('stSmokePeak');
+const stDensity = document.getElementById('stDensity');
+const stPressure = document.getElementById('stPressure');
+const stFlow = document.getElementById('stFlow');
+const windXInput = document.getElementById('windX');
+const windYInput = document.getElementById('windY');
+const windVal = document.getElementById('windVal');
+const spawnVal = document.getElementById('spawnVal');
+const spawnInputs = ['spawnX0','spawnY0','spawnX1','spawnY1'].map(id => document.getElementById(id));
+let windDraft = false;
+let spawnDraft = false;
+windXInput.addEventListener('input', () => { windDraft = true; });
+spawnInputs.forEach(el => el.addEventListener('input', () => { spawnDraft = true; }));
+windYInput.addEventListener('input', () => { windDraft = true; });
+const npcCountInput = document.getElementById('npcCount');
+const npcApplied = document.getElementById('npcApplied');
+let npcDraft = false;
+npcCountInput.addEventListener('input', () => { npcDraft = true; });
+const simSpeed = document.getElementById('simSpeed');
+const speedVal = document.getElementById('speedVal');
+let confirmedSpeed = 1, speedPending = false;
+simSpeed.addEventListener('change', async () => {
+  const requested = Number(simSpeed.value);
+  speedPending = true;
+  const ok = await postAction('/api/evac/speed?v=' + requested);
+  speedPending = false;
+  if (ok) confirmedSpeed = requested;
+  simSpeed.value = String(confirmedSpeed);
+  speedVal.textContent = confirmedSpeed + '×';
+});
+
+slC.addEventListener('input', () => { cVal.textContent = slC.value; });
+slV.addEventListener('input', () => { vVal.textContent = slV.value; });
+slP.addEventListener('input', () => { pVal.textContent = (slP.value / 10).toFixed(1); });
+slP.addEventListener('change', () => {
+  postAction('/api/evac/panic?v=' + (slP.value / 10));
+});
+exitCountInput.addEventListener('change', () => { eVal.textContent = exitCountInput.value; });
+playUrlEl.textContent = '正在获取手机连接地址…';
+fetch('/api/info').then(r => { if (!r.ok) throw new Error(); return r.json(); })
+  .then(info => { playUrlEl.textContent = info.play_url; })
+  .catch(() => { playUrlEl.textContent = '无法获取手机地址，请刷新重试'; });
+
+// 回填当前实验信息，刷新页面后不会丢失已保存的标签。
+fetch('/api/experiment').then(r => r.json()).then(data => {
+  const e = data.experiment || {};
+  expIdEl.value = e.experiment_id || '';
+  expConditionEl.value = e.condition || '';
+  expGroupEl.value = e.group || '';
+  expOperatorEl.value = e.operator || '';
+  expNotesEl.value = e.notes || '';
+  if (e.trial_seq) {
+    expStatusEl.textContent = '当前为第 ' + e.trial_seq + ' 场'
+      + (e.t0_iso ? ' · 开始于 ' + e.t0_iso : '');
+  }
+}).catch(() => {});
+
+let CELL = 32, MW = 60, MH = 34;
+let WORLD_W = 1920, WORLD_H = 1088;
+let walls = null;
+let EXITS = [[59, 33]];
+let players = {};
+let tracks = {};
+let fireCells = [];
+let smokeCells = [];
+let evacPhase = 'idle';
+let evacElapsed = 0;
+let evacEscaped = 0;
+let evacFailed = 0;
+let evacAlive = 0;
+let evacN = 0, evacNpcs = 0, evacHumans = 0, npcTarget = 80;
+let selectedPid = null;
+const inspectEl = document.getElementById('inspect');
+const expIdEl = document.getElementById('expId');
+const expConditionEl = document.getElementById('expCondition');
+const expGroupEl = document.getElementById('expGroup');
+const expOperatorEl = document.getElementById('expOperator');
+const expNotesEl = document.getElementById('expNotes');
+const expStatusEl = document.getElementById('expStatus');
+
+async function saveExperiment() {
+  const payload = {
+    experiment_id: expIdEl.value.trim(),
+    condition: expConditionEl.value.trim(),
+    group: expGroupEl.value.trim(),
+    operator: expOperatorEl.value.trim(),
+    notes: expNotesEl.value.trim(),
+  };
+  const res = await fetch('/api/experiment', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) { expStatusEl.textContent = '保存失败'; return; }
+  const data = await res.json();
+  expStatusEl.textContent = '已保存：' + (data.experiment.experiment_id || '（未编号）')
+    + ' · trial ' + data.experiment.trial_seq;
+}
+
+async function archiveTrial() {
+  expStatusEl.textContent = '正在归档…';
+  const res = await fetch('/api/experiment/archive', { method: 'POST' });
+  if (!res.ok) { expStatusEl.textContent = '归档失败'; return; }
+  const data = await res.json();
+  expStatusEl.textContent = data.saved
+    ? '已归档 ' + data.saved.json
+    : '本场暂无数据可归档';
+}
+const seedInput = document.getElementById('seedInput');
+const seedVal = document.getElementById('seedVal');
+let seedDraft = false;
+seedInput.addEventListener('input', () => { seedDraft = true; });
+let scale = 1, ox = 0, oy = 0;
+let mazeCache = null;
+let trackCache = null;
+let trackCtx = null;
+let needDraw = true;
+let panelKey = '';
+let riskSmokeDose = 0, riskSmokePeak = 0, riskDensity = 0, riskPressure = 0, riskFlow = 0;
+
+function setStatus(text, kind) {
+  statusEl.textContent = text;
+  statusEl.className = kind || '';
+}
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = wrap.clientWidth;
+  const h = wrap.clientHeight;
+  if (w < 2 || h < 2) return;
+  cvs.width = Math.max(1, Math.floor(w * dpr));
+  cvs.height = Math.max(1, Math.floor(h * dpr));
+  recomputeView();
+  if (walls) buildMazeCache();
+  rebuildTrackCache();
+  needDraw = true;
+}
+
+function recomputeView() {
+  scale = Math.min(cvs.width / WORLD_W, cvs.height / WORLD_H) * 0.96;
+  ox = (cvs.width - WORLD_W * scale) / 2;
+  oy = (cvs.height - WORLD_H * scale) / 2;
+}
+
+function eachWall(cs, fn) {
+  for (let y = 0; y < MH; y++) {
+    for (let x = 0; x < MW; x++) {
+      const w = walls[y][x];
+      const px = ox + x * cs;
+      const py = oy + y * cs;
+      if (w & 1) fn(px, py, px + cs, py);
+      if (w & 8) fn(px, py, px, py + cs);
+      if (x === MW - 1 && (w & 2)) fn(px + cs, py, px + cs, py + cs);
+      if (y === MH - 1 && (w & 4)) fn(px, py + cs, px + cs, py + cs);
+    }
+  }
+}
+
+function strokeWalls(m, cs, color, width) {
+  m.strokeStyle = color;
+  m.lineWidth = width;
+  m.lineCap = 'round';
+  m.lineJoin = 'round';
+  m.beginPath();
+  eachWall(cs, (x0, y0, x1, y1) => { m.moveTo(x0, y0); m.lineTo(x1, y1); });
+  m.stroke();
+}
+
+function buildMazeCache() {
+  mazeCache = document.createElement('canvas');
+  mazeCache.width = cvs.width;
+  mazeCache.height = cvs.height;
+  const m = mazeCache.getContext('2d');
+  const cs = CELL * scale;
+  const ww = WORLD_W * scale;
+  const hh = WORLD_H * scale;
+
+  m.fillStyle = '#1b2944';
+  m.fillRect(ox, oy, ww, hh);
+
+  if (cs >= 10) {
+    m.strokeStyle = 'rgba(90, 120, 180, 0.18)';
+    m.lineWidth = 1;
+    m.beginPath();
+    for (let x = 0; x <= MW; x++) {
+      m.moveTo(ox + x * cs, oy);
+      m.lineTo(ox + x * cs, oy + hh);
+    }
+    for (let y = 0; y <= MH; y++) {
+      m.moveTo(ox, oy + y * cs);
+      m.lineTo(ox + ww, oy + y * cs);
+    }
+    m.stroke();
+  }
+
+  EXITS.forEach(([gx, gy], index) => {
+    const ex = ox + gx * cs;
+    const ey = oy + gy * cs;
+    const glow = m.createRadialGradient(ex + cs / 2, ey + cs / 2, 2, ex + cs / 2, ey + cs / 2, cs);
+    glow.addColorStop(0, 'rgba(80,255,120,0.55)');
+    glow.addColorStop(1, 'rgba(80,255,120,0.08)');
+    m.fillStyle = glow;
+    m.fillRect(ex - cs * 0.2, ey - cs * 0.2, cs * 1.4, cs * 1.4);
+    m.fillStyle = 'rgba(70, 230, 120, 0.45)';
+    m.fillRect(ex + cs * 0.08, ey + cs * 0.08, cs * 0.84, cs * 0.84);
+    if (cs >= 18) {
+      m.fillStyle = '#edfff2';
+      m.font = `bold ${Math.max(11, cs * 0.30)}px system-ui`;
+      m.textAlign = 'center';
+      m.textBaseline = 'middle';
+      m.fillText('出口 ' + (index + 1), ex + cs / 2, ey + cs / 2);
+    }
+  });
+
+  strokeWalls(m, cs, '#070b14', Math.max(5, cs * 0.30));
+  strokeWalls(m, cs, '#c9d7fb', Math.max(2.5, cs * 0.16));
+}
+
+function rebuildTrackCache() {
+  trackCache = document.createElement('canvas');
+  trackCache.width = cvs.width;
+  trackCache.height = cvs.height;
+  trackCtx = trackCache.getContext('2d');
+  trackCtx.lineJoin = 'round';
+  trackCtx.lineCap = 'round';
+  trackCtx.globalAlpha = 0.55;
+  const cs = CELL * scale;
+  trackCtx.lineWidth = Math.max(2, cs * 0.12);
+  for (const pid in tracks) {
+    const p = players[pid];
+    const tr = tracks[pid];
+    if (!p || !tr || tr.length < 2) continue;
+    trackCtx.strokeStyle = p.color;
+    trackCtx.beginPath();
+    trackCtx.moveTo(ox + tr[0].x * scale, oy + tr[0].y * scale);
+    for (let i = 1; i < tr.length; i++) {
+      trackCtx.lineTo(ox + tr[i].x * scale, oy + tr[i].y * scale);
+    }
+    trackCtx.stroke();
+  }
+}
+
+function appendTrack(pid, x, y) {
+  if (!tracks[pid]) tracks[pid] = [];
+  const tr = tracks[pid];
+  const last = tr[tr.length - 1];
+  if (last && last.x === x && last.y === y) return;
+  tr.push({ x, y });
+  if (tr.length > 3000) tr.shift();
+  if (!trackCtx || !last) return;
+  const p = players[pid];
+  if (!p) return;
+  const cs = CELL * scale;
+  trackCtx.globalAlpha = 0.55;
+  trackCtx.strokeStyle = p.color;
+  trackCtx.lineWidth = Math.max(2, cs * 0.12);
+  trackCtx.beginPath();
+  trackCtx.moveTo(ox + last.x * scale, oy + last.y * scale);
+  trackCtx.lineTo(ox + x * scale, oy + y * scale);
+  trackCtx.stroke();
+}
+
+function draw() {
+  requestAnimationFrame(draw);
+  if (!needDraw) return;
+  needDraw = false;
+
+  ctx.fillStyle = '#070b14';
+  ctx.fillRect(0, 0, cvs.width, cvs.height);
+
+  if (mazeCache) {
+    ctx.drawImage(mazeCache, 0, 0);
+    const cs = CELL * scale;
+    const dpr = window.devicePixelRatio || 1;
+
+    for (const cell of smokeCells) {
+      const gx = cell[0], gy = cell[1], v = Math.max(0, Math.min(1, cell[2] || 0));
+      const fx = ox + gx * cs;
+      const fy = oy + gy * cs;
+      const alpha = Math.min(0.8, 0.16 + 0.62 * Math.pow(v, 0.55));
+      ctx.fillStyle = `rgba(${Math.round(86 + 40 * v)},${Math.round(88 + 28 * v)},${Math.round(96 + 8 * v)},${alpha})`;
+      ctx.fillRect(fx, fy, cs, cs);
+      if (cs >= 8) {
+        ctx.fillStyle = `rgba(190, 186, 176, ${0.10 + 0.28 * v})`;
+        ctx.beginPath();
+        ctx.ellipse(fx + cs / 2, fy + cs / 2, cs * 0.38, cs * 0.32, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    if (trackCache) ctx.drawImage(trackCache, 0, 0);
+
+    for (const fc of fireCells) {
+      const fx = ox + fc[0] * cs;
+      const fy = oy + fc[1] * cs;
+      ctx.fillStyle = 'rgba(255, 90, 30, 0.55)';
+      ctx.fillRect(fx, fy, cs, cs);
+      ctx.fillStyle = 'rgba(255, 200, 80, 0.35)';
+      ctx.beginPath();
+      ctx.arc(fx + cs / 2, fy + cs / 2, cs * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const smokeHere = new Map();
+    for (const cell of smokeCells) smokeHere.set(cell[0] + ',' + cell[1], cell[2] || 0);
+    for (const fc of fireCells) smokeHere.set(fc[0] + ',' + fc[1], 1);
+
+    for (const pid in players) {
+      const p = players[pid];
+      const px = ox + p.x * scale;
+      const py = oy + p.y * scale;
+      const r = p.human
+        ? Math.max(6 * dpr, cs * 0.32)
+        : Math.max(3 * dpr, cs * 0.18);
+      const gx = Math.floor(p.x / CELL);
+      const gy = Math.floor(p.y / CELL);
+      const nowSmoke = smokeHere.get(gx + ',' + gy) || 0;
+      const inSmoke = !p.failed && !p.escaped && nowSmoke >= 0.08;
+      const hurt = p.failed || p.health < 0.65;
+
+      if (p.human) {
+        const grad = ctx.createRadialGradient(px, py, r * 0.4, px, py, r * 2.4);
+        grad.addColorStop(0, p.color + '90');
+        grad.addColorStop(1, p.color + '00');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(px, py, r * 2.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (inSmoke && !hurt) {
+        ctx.fillStyle = 'rgba(255, 213, 74, 0.38)';
+        ctx.beginPath();
+        ctx.arc(px, py, r * 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = hurt ? '#ff4f5e' : (inSmoke ? '#ffd54a' : (p.human ? '#42d6ff' : p.color));
+      ctx.fill();
+      ctx.strokeStyle = p.escaped ? '#50ff78' : (inSmoke && !hurt ? '#ffe082' : (p.human ? '#fff' : 'rgba(255,255,255,.35)'));
+      ctx.lineWidth = p.escaped ? 3 : (p.human || inSmoke ? 2 : 1);
+      ctx.stroke();
+      if (p.pid === selectedPid) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(px, py, r + 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      if (p.human && p.name) {
+        ctx.fillStyle = '#f4f7ff';
+        ctx.font = `bold ${Math.max(12, 13 * dpr)}px system-ui`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.shadowColor = 'rgba(0,0,0,.8)';
+        ctx.shadowBlur = 6;
+        ctx.fillText(p.name, px, py - r - 4);
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+}
+requestAnimationFrame(draw);
+
+function updateMeta() {
+  mazeMeta.textContent = `${MW} × ${MH} 格 · 出口 ${EXITS.length} 个 · NPC ${evacNpcs} 人 · 真人 ${evacHumans} 人 · 共 ${evacN} 人 · 逃出 ${evacEscaped}`;
+  stSmoke.textContent = riskSmokeDose.toFixed(2);
+  stSmokePeak.textContent = riskSmokePeak.toFixed(2);
+  stDensity.textContent = riskDensity.toFixed(2);
+  stPressure.textContent = riskPressure.toFixed(0);
+  stFlow.textContent = riskFlow.toFixed(2);
+}
+
+function ingestAgents(list) {
+  const next = {};
+  for (const a of list || []) {
+    next[a.pid] = {
+      pid: a.pid,
+      name: a.n || '',
+      color: a.c,
+      x: a.x, y: a.y,
+      health: a.hp == null ? 1 : a.hp,
+      smoke: a.sm == null ? 0 : a.sm,
+      currentSmoke: a.sc == null ? 0 : a.sc,
+      smokeDose: a.sd == null ? 0 : a.sd,
+      densityM2: a.dm == null ? 0 : a.dm,
+      pressure: a.pr == null ? 0 : a.pr,
+      human: !!a.h,
+      escaped: !!a.e,
+      failed: !!a.f,
+      cause: a.cause || '',
+      online: a.h ? (a.on !== 0) : true,
+    };
+  }
+  players = next;
+}
+
+function applyEvac(msg) {
+  if (msg.smoke_dose_mean != null) riskSmokeDose = Number(msg.smoke_dose_mean);
+  if (msg.smoke_peak != null) riskSmokePeak = Number(msg.smoke_peak);
+  if (msg.density_active_mean != null) riskDensity = Number(msg.density_active_mean);
+  if (msg.pressure_peak != null) riskPressure = Number(msg.pressure_peak);
+  if (msg.outflow_per_min != null) riskFlow = Number(msg.outflow_per_min);
+  if (msg.wind != null) {
+    windVal.textContent = Number(msg.wind.speed).toFixed(1) + ' m/s';
+    if (!windDraft) {
+      windXInput.value = Number(msg.wind.x).toFixed(1);
+      windYInput.value = Number(msg.wind.y).toFixed(1);
+    }
+  }
+  if (msg.spawn_zone !== undefined) {
+    if (msg.spawn_zone) {
+      spawnVal.textContent = '[' + msg.spawn_zone.join(',') + ']';
+      if (!spawnDraft) {
+        spawnInputs[0].value = msg.spawn_zone[0];
+        spawnInputs[1].value = msg.spawn_zone[1];
+        spawnInputs[2].value = msg.spawn_zone[2];
+        spawnInputs[3].value = msg.spawn_zone[3];
+      }
+    } else {
+      spawnVal.textContent = '全图随机';
+    }
+  }
+  if (msg.npc_count != null) evacNpcs = msg.npc_count;
+  if (msg.human_count != null) evacHumans = msg.human_count;
+  if (msg.npc_target != null) {
+    npcTarget = msg.npc_target;
+    npcApplied.textContent = '当前 ' + npcTarget + ' 人';
+    if (!npcDraft) npcCountInput.value = npcTarget;
+  }
+  if (msg.time_scale != null) {
+    confirmedSpeed = Number(msg.time_scale);
+    speedVal.textContent = confirmedSpeed + '×';
+    if (!speedPending) simSpeed.value = String(confirmedSpeed);
+  }
+  if (msg.seed != null) {
+    seedVal.textContent = String(msg.seed);
+    if (!seedDraft) seedInput.value = msg.seed;
+  }
+  if (msg.phase) evacPhase = msg.phase;
+  if (msg.elapsed != null) evacElapsed = msg.elapsed;
+  if (msg.escaped != null) evacEscaped = msg.escaped;
+  if (msg.failed != null) evacFailed = msg.failed;
+  if (msg.alive != null) evacAlive = msg.alive;
+  if (msg.n != null) evacN = msg.n;
+  if (Array.isArray(msg.fire)) fireCells = msg.fire;
+  if (Array.isArray(msg.smoke)) smokeCells = msg.smoke;
+  if (msg.panic != null) {
+    if (document.activeElement !== slP) {
+      slP.value = Math.round(msg.panic * 10);
+      pVal.textContent = Number(msg.panic).toFixed(1);
+    }
+  }
+  const phaseMap = { idle: '待命', running: '疏散中', paused: '已暂停', ended: '已结束' };
+  document.getElementById('stPhase').textContent = phaseMap[evacPhase] || evacPhase;
+  document.getElementById('stTime').textContent = evacElapsed.toFixed(1) + 's';
+  document.getElementById('stOut').textContent = evacEscaped;
+  document.getElementById('stFail').textContent = evacFailed;
+  document.getElementById('stAlive').textContent = evacAlive;
+}
+
+function updatePanel() {
+  const arr = Object.values(players).filter(p => p.human);
+  updateMeta();
+  const key = arr.map(p => p.pid + '\t' + p.name + '\t' + p.escaped + '\t' + p.online + '\t' + p.failed).join('|')
+    + '|' + evacPhase + '|' + evacEscaped;
+  if (key !== panelKey) {
+    panelKey = key;
+    if (!arr.length) {
+      playersEl.innerHTML = '<div class="empty">还没有真人玩家，可扫码加入。</div>';
+    } else {
+      playersEl.replaceChildren(...arr.map(p => {
+        const row = document.createElement('div');
+        row.className = 'player' + (p.online ? '' : ' offline');
+        row.dataset.pid = p.pid;
+        row.style.cursor = 'pointer';
+        row.addEventListener('click', () => {
+          selectedPid = p.pid;
+          updateInspect();
+          needDraw = true;
+        });
+        const dot = document.createElement('span');
+        dot.className = 'dot'; dot.style.backgroundColor = p.color;
+        const name = document.createElement('span');
+        name.textContent = p.name;
+        if (p.escaped || p.failed) {
+          const tag = document.createElement('span');
+          tag.className = 'won-tag'; tag.textContent = p.escaped ? '逃出' : '倒下';
+          if (p.failed) tag.style.color = '#ff8080';
+          name.append(tag);
+        }
+        const coord = document.createElement('span');
+        coord.className = 'coord'; coord.style.cssText = 'margin-left:auto;color:#8fa3c8';
+        coord.textContent = p.x.toFixed(0) + ',' + p.y.toFixed(0);
+        row.append(dot, name, coord);
+        return row;
+      }));
+    }
+    const winners = arr.filter(p => p.escaped);
+    if (evacPhase === 'ended') {
+      winnerBanner.style.display = 'block';
+      winnerBanner.textContent = `本场结束：逃出 ${evacEscaped} / ${evacN}，倒下 ${evacFailed}，待撤离 ${evacAlive}`;
+    } else if (winners.length) {
+      winnerBanner.style.display = 'block';
+      winnerBanner.textContent = '已逃出：' + winners.map(p => p.name).join('、');
+    } else {
+      winnerBanner.style.display = 'none';
+    }
+  } else {
+    for (const el of playersEl.querySelectorAll('[data-pid]')) {
+      const p = players[el.dataset.pid];
+      if (!p) continue;
+      const coord = el.querySelector('.coord');
+      if (coord) coord.textContent = p.x.toFixed(0) + ',' + p.y.toFixed(0);
+    }
+  }
+}
+
+let ws;
+let reconnectTimer = null, retryDelay = 1000;
+function connect() {
+  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  clearTimeout(reconnectTimer);
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/host`);
+  ws.onopen = () => { retryDelay = 1000; setStatus('已连接', 'ok'); };
+  ws.onclose = () => {
+    setStatus('重连中…', 'warn');
+    reconnectTimer = setTimeout(connect, retryDelay + Math.random() * 300);
+    retryDelay = Math.min(retryDelay * 2, 15000);
+  };
+  ws.onmessage = ev => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'init' || msg.type === 'maze') {
+      CELL = msg.cell; MW = msg.mw; MH = msg.mh;
+      WORLD_W = msg.world.w; WORLD_H = msg.world.h;
+      walls = msg.walls;
+      EXITS = msg.exits || [msg.exit];
+      exitCountInput.value = String(msg.exit_count || EXITS.length);
+      eVal.textContent = msg.exit_count || EXITS.length;
+      exitLayoutInput.value = msg.exit_layout || 'spread';
+      if (msg.complexity) {
+        slC.value = msg.complexity; cVal.textContent = msg.complexity;
+      }
+      if (msg.view_level) {
+        slV.value = msg.view_level; vVal.textContent = msg.view_level;
+      }
+      recomputeView();
+      buildMazeCache();
+      applyEvac(msg);
+      ingestAgents(msg.agents);
+      if (msg.type === 'maze') {
+        tracks = {};
+        panelKey = '';
+      }
+      updatePanel();
+      updateInspect();
+      rebuildTrackCache();
+      needDraw = true;
+    } else if (msg.type === 'state') {
+      applyEvac(msg);
+      const list = msg.agents || msg.players || [];
+      ingestAgents(list);
+      for (const p of Object.values(players)) {
+        if (p.human) appendTrack(p.pid, p.x, p.y);
+      }
+      updatePanel();
+      updateInspect();
+      needDraw = true;
+    }
+  };
+}
+
+let actionPending = false;
+async function postAction(url, body) {
+  if (actionPending) return false;
+  actionPending = true;
+  simSpeed.disabled = true;
+  npcCountInput.disabled = true;
+  exitCountInput.disabled = true;
+  exitLayoutInput.disabled = true;
+  windXInput.disabled = true;
+  windYInput.disabled = true;
+  spawnInputs.forEach(el => { el.disabled = true; });
+  document.querySelectorAll('button').forEach(b => b.disabled = true);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const options = { method:'POST', signal:controller.signal };
+    if (body != null) {
+      options.headers = { 'Content-Type': 'application/json' };
+      options.body = body;
+    }
+    const response = await fetch(url, options);
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const result = await response.json();
+    if (result.ok === false) throw new Error('此位置不能点火');
+    setStatus(ws && ws.readyState === 1 ? '已连接' : '操作完成，等待连接', 'ok');
+    return true;
+  } catch (error) {
+    setStatus(error.name === 'AbortError' ? '请求超时，请确认状态后重试' : '操作失败：' + error.message, 'warn');
+    return false;
+  } finally {
+    clearTimeout(timeout);
+    actionPending = false;
+    simSpeed.disabled = false;
+    npcCountInput.disabled = false;
+    exitCountInput.disabled = false;
+    exitLayoutInput.disabled = false;
+    windXInput.disabled = false;
+    windYInput.disabled = false;
+    spawnInputs.forEach(el => { el.disabled = false; });
+    document.querySelectorAll('button').forEach(b => b.disabled = false);
+  }
+}
+
+async function applyNpcCount() {
+  if (!npcCountInput.reportValidity()) return;
+  const n = npcCountInput.valueAsNumber;
+  if (!Number.isInteger(n)) return;
+  if (await postAction('/api/evac/npcs?n=' + n)) {
+    npcDraft = false;
+    npcTarget = n;
+    npcCountInput.value = n;
+    npcApplied.textContent = '当前 ' + n + ' 人';
+  }
+}
+
+async function applyWind() {
+  if (!windXInput.reportValidity() || !windYInput.reportValidity()) return;
+  const x = Number(windXInput.value);
+  const y = Number(windYInput.value);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  if (await postAction('/api/evac/wind?x=' + encodeURIComponent(x) + '&y=' + encodeURIComponent(y))) {
+    windDraft = false;
+  }
+}
+
+function spawnZoneParams() {
+  if (!spawnInputs.every(el => el.reportValidity())) return null;
+  const vals = spawnInputs.map(el => el.valueAsNumber);
+  if (!vals.every(v => Number.isInteger(v) && v >= 0)) return null;
+  return vals;
+}
+
+async function applySpawnZone() {
+  const vals = spawnZoneParams();
+  if (!vals) { setStatus('起始区需要 4 个非负整数格坐标', 'warn'); return; }
+  const [x0, y0, x1, y1] = vals;
+  const q = 'x0=' + x0 + '&y0=' + y0 + '&x1=' + x1 + '&y1=' + y1;
+  if (await postAction('/api/evac/spawn_zone?' + q)) {
+    spawnDraft = false;
+    setStatus('起始区已设置，重置人群后生效', 'ok');
+  }
+}
+
+async function clearSpawnZone() {
+  if (await postAction('/api/evac/spawn_zone')) {
+    spawnDraft = false;
+    spawnInputs.forEach(el => { el.value = ''; });
+    spawnVal.textContent = '全图随机';
+    setStatus('已恢复全图随机起始', 'ok');
+  }
+}
+
+async function resetGame(withPos, clearFire) {
+  if (!await postAction('/api/reset?pos=' + (withPos ? 1 : 0) + '&fire=' + (clearFire ? 1 : 0))) return;
+  tracks = {};
+  rebuildTrackCache();
+  needDraw = true;
+}
+
+async function evacStart() {
+  await postAction('/api/evac/start');
+}
+async function evacPause() {
+  await postAction('/api/evac/pause');
+}
+async function evacFire() {
+  await postAction('/api/evac/fire');
+}
+
+function causeLabel(p) {
+  if (p.escaped) return '已逃出';
+  if (p.failed && p.cause === 'fire') return '倒下 · 火格';
+  if (p.failed && p.cause === 'smoke') return '倒下 · 烟气';
+  if (p.failed) return '倒下';
+  if (p.health < 0.65) return '受伤';
+  if ((p.currentSmoke || 0) >= 0.08) return '正在烟中';
+  return '正常';
+}
+
+function updateInspect() {
+  const p = selectedPid ? players[selectedPid] : null;
+  if (!p) {
+    if (selectedPid && !players[selectedPid]) selectedPid = null;
+    inspectEl.textContent = '点击地图上的人查看血量、烟气和死因。';
+    return;
+  }
+  inspectEl.replaceChildren();
+  const lines = [
+    p.name || p.pid,
+    causeLabel(p),
+    '血量 ' + (p.health * 100).toFixed(0) + '%',
+    '当前烟 ' + Number(p.currentSmoke || 0).toFixed(2),
+    '烟气剂量 ' + Number(p.smokeDose || 0).toFixed(2),
+    '位置 ' + p.x.toFixed(0) + ', ' + p.y.toFixed(0),
+  ];
+  lines.forEach((text, i) => {
+    const div = document.createElement(i === 0 ? 'b' : 'div');
+    div.textContent = text;
+    inspectEl.appendChild(div);
+  });
+}
+
+cvs.addEventListener('click', e => {
+  const rect = cvs.getBoundingClientRect();
+  const dpr = cvs.width / rect.width;
+  const mx = (e.clientX - rect.left) * dpr;
+  const my = (e.clientY - rect.top) * dpr;
+  let best = null, bestD = Math.max(14 * dpr, CELL * scale * 0.42);
+  for (const p of Object.values(players)) {
+    const d = Math.hypot(ox + p.x * scale - mx, oy + p.y * scale - my);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  if (best) {
+    selectedPid = best.pid;
+    updateInspect();
+    needDraw = true;
+    return;
+  }
+  const gx = Math.floor((mx - ox) / scale / CELL);
+  const gy = Math.floor((my - oy) / scale / CELL);
+  if (gx < 0 || gy < 0 || gx >= MW || gy >= MH) return;
+  postAction(`/api/evac/fire?gx=${gx}&gy=${gy}`);
+});
+
+async function restartGame() {
+  const c = slC.value;
+  const v = slV.value;
+  const exits = exitCountInput.value;
+  const layout = exitLayoutInput.value;
+  let url = `/api/restart?complexity=${c}&view=${v}&exit_count=${exits}&exit_layout=${layout}`;
+  if (seedInput.value !== '') {
+    const seed = seedInput.valueAsNumber;
+    if (!Number.isInteger(seed) || seed < 1) return;
+    url += '&seed=' + seed;
+  }
+  setStatus('重建中…', '');
+  seedDraft = false;
+  await postAction(url);
+}
+
+document.getElementById('scenarioFile').addEventListener('change', async ev => {
+  const file = ev.target.files && ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (error) {
+    setStatus('场景文件不是有效 JSON', 'warn');
+    return;
+  }
+  setStatus('加载场景中…', '');
+  const ok = await postAction('/api/scenario', JSON.stringify(data));
+  if (ok) {
+    tracks = {};
+    selectedPid = null;
+    rebuildTrackCache();
+    needDraw = true;
+  }
+});
+
+new ResizeObserver(resize).observe(wrap);
+connect();
+</script>
+</body>
+</html>
