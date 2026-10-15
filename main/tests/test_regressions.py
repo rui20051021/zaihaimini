@@ -4,12 +4,13 @@ import copy
 import io
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from evac import Agent, EvacSim, MAX_DURATION
+from evac import Agent, DataPersistenceError, EvacSim, MAX_DURATION
 import main
 
 
@@ -341,6 +342,7 @@ class SimulationTests(unittest.TestCase):
         sim.ensure_population(4)
         self.assertTrue(sim.ignite(0, 0))
         data = sim.export_scenario()
+        self.assertEqual(data['version'], 1)
         self.assertEqual(data['npc_target'], 4)
         self.assertIn([0, 0], data['fire'])
         sim.burning.clear()
@@ -349,6 +351,39 @@ class SimulationTests(unittest.TestCase):
         self.assertIn((0, 0), sim.burning)
         self.assertEqual(sim.npc_target, 4)
         self.assertEqual(sum(not a.is_human for a in sim.agents.values()), 4)
+
+    def test_unknown_scenario_version_is_rejected_before_archive(self):
+        sim = self.sim
+        original = (sim.npc_target, sim.panic, sim.time_scale, sim.trial_seq,
+                    sim.maze.mw, sim.maze.mh, copy.deepcopy(sim.maze.walls))
+        with patch.object(sim, 'archive_trial') as archive:
+            with self.assertRaises(ValueError):
+                sim.apply_scenario_state({'version': 2, 'npc_target': 7})
+        archive.assert_not_called()
+        self.assertEqual(
+            (sim.npc_target, sim.panic, sim.time_scale, sim.trial_seq,
+             sim.maze.mw, sim.maze.mh, sim.maze.walls),
+            original,
+        )
+
+    def test_invalid_scenario_is_rejected_without_partial_mutation(self):
+        sim = self.sim
+        sim.ensure_population(0)
+        sim.add_human('p1', '甲', '#fff')
+        sim.start()
+        sim.agents['p1'].track = [[0.0, 16, 16, 0, 0, 0, 0, 0, 1]]
+        original = (sim.npc_target, sim.panic, sim.time_scale, sim.wind_x,
+                    sim.wind_y, sim.spawn_zone, set(sim.burning), sim.trial_seq,
+                    copy.deepcopy(sim.agents['p1'].track))
+        bad_scenario = {"npc_target": 5, "panic": .9, "time_scale": 2,
+                        "wind": {"x": 2, "y": 0}, "spawn_zone": [0, 0, 1, 1],
+                        "fire": [[99, 99]]}
+        with self.assertRaises(ValueError):
+            sim.apply_scenario_state(bad_scenario)
+        after = (sim.npc_target, sim.panic, sim.time_scale, sim.wind_x,
+                 sim.wind_y, sim.spawn_zone, set(sim.burning), sim.trial_seq,
+                 sim.agents['p1'].track)
+        self.assertEqual(after, original)
 
 
 class DataDictionaryTests(unittest.TestCase):
@@ -498,6 +533,75 @@ class DataDictionaryTests(unittest.TestCase):
         after = len(list(Path(self.tmp.name).glob('evac_*_tracks.csv')))
         self.assertEqual(before, after)
 
+    def test_failed_archive_preserves_trial_before_reset(self):
+        sim = self.sim
+        sim.ensure_population(0)
+        sim.add_human('p1', '甲', '#fff')
+        sim.start()
+        sim.agents['p1'].track = [[0.0, 16, 16, 0, 0, 0, 0, 0, 1]]
+        before_track = copy.deepcopy(sim.agents['p1'].track)
+        before_trial = sim.trial_seq
+        with patch.object(sim, 'save_outputs', side_effect=DataPersistenceError('disk full')):
+            with self.assertRaises(DataPersistenceError):
+                sim.reset_crowd(keep_humans=False)
+        self.assertIn('p1', sim.agents)
+        self.assertEqual(sim.agents['p1'].track, before_track)
+        self.assertEqual(sim.trial_seq, before_trial)
+        self.assertNotEqual(sim._archived_trial, before_trial)
+
+    def test_failed_archive_is_not_marked_complete(self):
+        sim = self.sim
+        sim.ensure_population(0)
+        sim.add_human('p1', '甲', '#fff')
+        sim.start()
+        sim.agents['p1'].track = [[0.0, 16, 16, 0, 0, 0, 0, 0, 1]]
+        with patch.object(sim, 'save_outputs', side_effect=DataPersistenceError('read only')):
+            sim._finish()
+        self.assertNotEqual(sim._archived_trial, sim.trial_seq)
+        self.assertTrue(sim.agents['p1'].track)
+
+    def test_failed_archive_does_not_apply_population_change(self):
+        sim = self.sim
+        sim.ensure_population(0)
+        sim.add_human('p1', '甲', '#fff')
+        sim.start()
+        sim.agents['p1'].track = [[0.0, 16, 16, 0, 0, 0, 0, 0, 1]]
+        before_track = copy.deepcopy(sim.agents['p1'].track)
+        with patch.object(sim, 'save_outputs', side_effect=DataPersistenceError('disk full')):
+            with self.assertRaises(DataPersistenceError):
+                sim.set_npc_count(3)
+        self.assertEqual(sim.npc_target, 0)
+        self.assertEqual(sim.agents['p1'].track, before_track)
+
+    def test_archive_filenames_never_overwrite_existing_trial(self):
+        sim = self.sim
+        sim.ensure_population(0)
+        agent = sim.add_human('p1', '甲', '#fff')
+        sim.start()
+        agent.track = [[0.0, 16, 16, 0, 0, 0, 0, 0, 1]]
+        with patch('evac.datetime') as clock:
+            clock.now.return_value.strftime.return_value = '20260929_120000'
+            first = sim.archive_trial()
+            sim._archived_trial = -1
+            second = sim.archive_trial()
+        self.assertNotEqual(first['json'], second['json'])
+        self.assertTrue((Path(self.tmp.name) / first['json']).is_file())
+        self.assertTrue((Path(self.tmp.name) / second['json']).is_file())
+
+    def test_manual_snapshot_does_not_finalize_a_running_trial(self):
+        sim = self.sim
+        sim.ensure_population(0)
+        agent = sim.add_human('p1', '甲', '#fff')
+        sim.start()
+        agent.track = [[0.0, 16, 16, 0, 0, 0, 0, 0, 1]]
+        first = sim.archive_trial(reason='manual', finalize=False)
+        self.assertIsNone(sim.summary)
+        agent.track.append([0.2, 18, 16, 0, 0, 0, 0, 0, 1])
+        second = sim.archive_trial(reason='reset')
+        self.assertNotEqual(first['csv'], second['csv'])
+        with (Path(self.tmp.name) / second['csv']).open(encoding='utf-8', newline='') as handle:
+            self.assertEqual(len(list(csv.DictReader(handle))), 2)
+
 
 class ExperimentMetadataTests(unittest.TestCase):
     def setUp(self):
@@ -517,6 +621,7 @@ class ExperimentMetadataTests(unittest.TestCase):
         sim.ensure_population(0)
         sim.start()
         summary = sim.build_summary()
+        self.assertEqual(summary['schema_version'], 1)
         exp = summary['experiment']
         self.assertEqual(exp['experiment_id'], 'EXP-01')
         self.assertEqual(exp['condition'], 'low_visibility')
@@ -682,6 +787,13 @@ class SpawnControlTests(unittest.TestCase):
             sim.set_spawn_zone((1, 2, 3))
         with self.assertRaises(ValueError):
             sim.set_spawn_zone("nope")
+        for zone in ((-1, 0, 2, 2), (0, 0, sim.maze.mw, 2),
+                     (sim.maze.mw, 0, sim.maze.mw + 1, 2)):
+            with self.subTest(zone=zone), self.assertRaises(ValueError):
+                sim.set_spawn_zone(zone)
+        with self.assertRaises(ValueError):
+            sim.set_spawn_zone((0.5, 0, 2, 2))
+        self.assertIsNone(sim.spawn_zone)
 
     def test_spawn_zone_round_trips_through_scenario(self):
         sim = self._sim()
@@ -713,6 +825,13 @@ class NetworkTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(*tasks, return_exceptions=True)
         for p in self.patches:
             p.stop()
+
+    async def test_idle_socket_is_not_closed_just_for_waiting(self):
+        ws = FakeSocket()
+        self.hub.hosts.add(ws)
+        self.hub.register(ws)
+        await asyncio.sleep(1.1)
+        self.assertIsNone(ws.closed)
 
     async def test_slow_socket_does_not_block_fast_socket(self):
         slow, fast = FakeSocket(delay=.3), FakeSocket()
@@ -778,11 +897,35 @@ class NetworkTests(unittest.IsolatedAsyncioTestCase):
         await self.sim_wrap(ws, 'pAAAA1111', '甲', participant='S001', consent=False)
         self.assertEqual(ws.closed, 4005)
 
+    async def test_new_participant_cannot_join_finished_trial(self):
+        self.sim.require_participant_consent = True
+        self.sim.phase = 'ended'
+        ws = FakeSocket()
+        await self.sim_wrap(ws, 'pAAAA1111', '甲', participant='S001', consent=True)
+        self.assertEqual(ws.closed, 4006)
+        self.assertFalse(any(a.is_human for a in self.sim.agents.values()))
+
     async def test_demo_mode_allows_anonymous_join(self):
         self.sim.require_participant_consent = False
         ws = FakeSocket()
         await self.sim_wrap(ws, 'pAAAA1111', '甲')
         self.assertTrue(self.sim.agents['pAAAA1111'].is_human)
+
+    async def test_participant_identifier_is_trimmed_before_identity_matching(self):
+        self.sim.require_participant_consent = True
+        first = FakeSocket()
+        await self.sim_wrap(first, 'pAAAA1111', '甲', participant='  S001  ', consent=True)
+        second = FakeSocket()
+        await self.sim_wrap(second, 'pBBBB2222', '甲', participant='S001', consent=True)
+        humans = [a for a in self.sim.agents.values() if a.is_human]
+        self.assertEqual(len(humans), 1)
+        self.assertEqual(humans[0].participant_id, 'S001')
+
+    async def test_player_name_is_limited_for_public_state(self):
+        ws = FakeSocket()
+        name = '这是一个特别特别长的玩家名称需要截断'
+        await self.sim_wrap(ws, 'pAAAA1111', name)
+        self.assertEqual(self.sim.agents['pAAAA1111'].name, name[:main.MAX_PLAYER_NAME_LENGTH])
 
     async def sim_wrap(self, ws, pid, name, participant='', consent=None):
         """调用 ws_player 并在第一条消息后结束,模拟玩家接入。"""
@@ -803,3 +946,383 @@ class NetworkTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class MainRobustnessTests(unittest.TestCase):
+    class Headers(dict):
+        def get(self, key, default=None):
+            key = key.lower()
+            return next((value for name, value in self.items() if name.lower() == key), default)
+
+    def _admin_request(self, *, method="GET", path="/api/tracks", origin=None, cookie=None,
+                       header_token=None):
+        headers = {"Host": "maze.test"}
+        if origin is not None:
+            headers["Origin"] = origin
+        if header_token is not None:
+            headers["X-Maze-Admin-Token"] = header_token
+        return SimpleNamespace(
+            headers=self.Headers(headers),
+            cookies={main.ADMIN_SESSION_COOKIE: cookie} if cookie else {},
+            method=method,
+            url=SimpleNamespace(scheme="http", netloc="maze.test", path=path),
+        )
+
+    def test_admin_header_token_and_session_authentication(self):
+        async def check():
+            with patch.object(main, "ADMIN_TOKEN", "secret-test-token"), \
+                 patch.dict(main.ADMIN_SESSIONS, {"valid-session": time.monotonic() + 60}, clear=True):
+                await main.require_admin(self._admin_request(header_token="secret-test-token"))
+                self.assertFalse(main.admin_token_matches("🔒"))
+                await main.require_admin(self._admin_request(cookie="valid-session"))
+                with self.assertRaises(main.HTTPException) as raised:
+                    await main.require_admin(self._admin_request())
+                self.assertEqual(raised.exception.status_code, 401)
+        asyncio.run(check())
+
+    def test_cookie_authenticated_mutations_require_same_origin(self):
+        async def check():
+            with patch.object(main, "ADMIN_TOKEN", "secret-test-token"), \
+                 patch.dict(main.ADMIN_SESSIONS, {"valid-session": time.monotonic() + 60}, clear=True):
+                await main.require_admin(self._admin_request(
+                    method="POST", cookie="valid-session", origin="http://maze.test"))
+                with self.assertRaises(main.HTTPException) as raised:
+                    await main.require_admin(self._admin_request(
+                        method="POST", cookie="valid-session", origin="https://attacker.test"))
+                self.assertEqual(raised.exception.status_code, 403)
+        asyncio.run(check())
+
+    def test_trusted_proxy_headers_are_used_only_when_enabled(self):
+        request = self._admin_request(method="POST", origin="https://public.example")
+        request.url = SimpleNamespace(scheme="http", netloc="internal:8000", path="/api/tracks")
+        request.headers["X-Forwarded-Proto"] = "https"
+        request.headers["X-Forwarded-Host"] = "public.example"
+
+        with patch.object(main, "TRUST_PROXY_HEADERS", False):
+            with self.assertRaises(main.HTTPException) as raised:
+                main.require_same_origin(request)
+            self.assertEqual(raised.exception.status_code, 403)
+
+        with patch.object(main, "TRUST_PROXY_HEADERS", True):
+            main.require_same_origin(request)
+
+    def test_trusted_proxy_headers_work_for_admin_websocket(self):
+        with patch.object(main, "ADMIN_TOKEN", "secret-test-token"), \
+             patch.object(main, "TRUST_PROXY_HEADERS", True), \
+             patch.dict(main.ADMIN_SESSIONS, {"valid-session": time.monotonic() + 60}, clear=True):
+            ws = SimpleNamespace(
+                cookies={main.ADMIN_SESSION_COOKIE: "valid-session"},
+                headers={
+                    "origin": "https://public.example",
+                    "host": "internal:8000",
+                    "x-forwarded-proto": "https",
+                    "x-forwarded-host": "public.example",
+                },
+                url=SimpleNamespace(scheme="ws", netloc="internal:8000"),
+            )
+            self.assertTrue(main.websocket_admin_token(ws))
+
+    def test_admin_sessions_expire_and_are_removed(self):
+        with patch.dict(main.ADMIN_SESSIONS, {"expired": 0.0}, clear=True):
+            self.assertFalse(main.valid_admin_session("expired"))
+            self.assertNotIn("expired", main.ADMIN_SESSIONS)
+
+    def test_json_body_reader_rejects_declared_and_actual_oversize_payloads(self):
+        class StreamingRequest:
+            def __init__(self, body, content_length=None):
+                headers = {}
+                if content_length is not None:
+                    headers["Content-Length"] = str(content_length)
+                self.headers = MainRobustnessTests.Headers(headers)
+                self.body = body
+
+            async def stream(self):
+                yield self.body
+
+        async def check():
+            declared = StreamingRequest(b"{}", main.MAX_EXPERIMENT_JSON_BYTES + 1)
+            with self.assertRaises(main.HTTPException) as raised:
+                await main.read_json_body(
+                    declared, main.MAX_EXPERIMENT_JSON_BYTES, "实验元数据"
+                )
+            self.assertEqual(raised.exception.status_code, 413)
+
+            actual = StreamingRequest(b"x" * (main.MAX_EXPERIMENT_JSON_BYTES + 1))
+            with self.assertRaises(main.HTTPException) as raised:
+                await main.read_json_body(
+                    actual, main.MAX_EXPERIMENT_JSON_BYTES, "实验元数据"
+                )
+            self.assertEqual(raised.exception.status_code, 413)
+
+            valid = StreamingRequest(b'{"condition":"baseline"}')
+            self.assertEqual(
+                await main.read_json_body(valid, main.MAX_EXPERIMENT_JSON_BYTES, "实验元数据"),
+                {"condition": "baseline"},
+            )
+
+        asyncio.run(check())
+
+    def test_readiness_checks_actual_data_volume(self):
+        payload = asyncio.run(main.readyz())
+        self.assertEqual(payload["status"], "ready")
+        self.assertTrue(payload["checks"]["maze"])
+        self.assertTrue(payload["checks"]["simulation"])
+        self.assertTrue(payload["checks"]["data_dir"])
+
+        with patch.object(main, "data_dir_is_writable", return_value=False):
+            response = asyncio.run(main.readyz())
+        self.assertEqual(response.status_code, 503)
+        body = json.loads(response.body.decode("utf-8"))
+        self.assertEqual(body["status"], "not_ready")
+        self.assertFalse(body["checks"]["data_dir"])
+
+    def test_persistence_error_returns_storage_status_without_exposing_path(self):
+        request = SimpleNamespace()
+        response = asyncio.run(main.data_persistence_error_handler(
+            request, DataPersistenceError("/private/research/data is read-only")))
+        self.assertEqual(response.status_code, 507)
+        payload = json.loads(response.body.decode("utf-8"))
+        self.assertIn("无法写入磁盘", payload["detail"])
+        self.assertNotIn("/private/research/data", response.body.decode("utf-8"))
+
+    def test_experiment_metadata_update_is_atomic(self):
+        class JsonRequest:
+            async def json(self):
+                return {"experiment_id": "SHOULD-NOT-APPLY", "operator": []}
+
+        before = main.sim.experiment_id
+        with self.assertRaises(main.HTTPException):
+            asyncio.run(main.api_experiment_set(JsonRequest(), None))
+        self.assertEqual(main.sim.experiment_id, before)
+
+    def test_experiment_metadata_cannot_change_mid_trial(self):
+        class JsonRequest:
+            async def json(self):
+                return {"condition": "new-condition"}
+
+        sim = EvacSim(main.maze, Path(tempfile.mkdtemp()))
+        sim.phase = "running"
+        with patch.object(main, "sim", sim):
+            with self.assertRaises(main.HTTPException) as raised:
+                asyncio.run(main.api_experiment_set(JsonRequest(), None))
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertEqual(sim.condition, "")
+
+    def test_admin_login_attempts_are_rate_limited_per_client(self):
+        with patch.dict(main.ADMIN_LOGIN_ATTEMPTS, {}, clear=True), \
+             patch.object(main.time, "monotonic", return_value=100.0):
+            for _ in range(main.ADMIN_LOGIN_LIMIT):
+                self.assertTrue(main.allow_admin_login_attempt("127.0.0.1"))
+            self.assertFalse(main.allow_admin_login_attempt("127.0.0.1"))
+        with patch.dict(main.ADMIN_LOGIN_ATTEMPTS, {}, clear=True), \
+             patch.object(main.time, "monotonic", return_value=500.0):
+            self.assertTrue(main.allow_admin_login_attempt("127.0.0.1"))
+
+    def test_websocket_admin_requires_valid_cookie_and_same_origin(self):
+        with patch.object(main, "ADMIN_TOKEN", "secret-test-token"), \
+             patch.dict(main.ADMIN_SESSIONS, {"valid-session": time.monotonic() + 60}, clear=True):
+            ws = SimpleNamespace(
+                cookies={main.ADMIN_SESSION_COOKIE: "valid-session"},
+                headers={"origin": "http://maze.test", "host": "maze.test"},
+                url=SimpleNamespace(scheme="ws", netloc="maze.test"),
+            )
+            self.assertTrue(main.websocket_admin_token(ws))
+            ws.headers["origin"] = "http://attacker.test"
+            self.assertFalse(main.websocket_admin_token(ws))
+            ws.headers["origin"] = "http://maze.test"
+            ws.cookies[main.ADMIN_SESSION_COOKIE] = "expired"
+            self.assertFalse(main.websocket_admin_token(ws))
+
+    def test_manual_end_archives_running_trial_without_resetting_agents(self):
+        sim = EvacSim(main.maze, Path(tempfile.mkdtemp()))
+        sim.require_participant_consent = False
+        sim.ensure_population(1)
+        sim.start()
+        sim.advance(0.2)
+        before = {pid: (a.x, a.y) for pid, a in sim.agents.items()}
+        with patch.object(main, "sim", sim):
+            result = asyncio.run(main.api_evac_end(None))
+        self.assertTrue(result["changed"])
+        self.assertEqual(sim.phase, "ended")
+        self.assertEqual(before, {pid: (a.x, a.y) for pid, a in sim.agents.items()})
+        self.assertIsNotNone(result["saved"])
+
+    def test_manual_end_storage_failure_returns_without_claiming_archive(self):
+        sim = EvacSim(main.maze, Path(tempfile.mkdtemp()))
+        sim.ensure_population(1)
+        sim.start()
+        sim.advance(0.2)
+        with patch.object(main, "sim", sim), \
+             patch.object(sim, "archive_trial", side_effect=DataPersistenceError("read only")):
+            with self.assertRaises(DataPersistenceError):
+                asyncio.run(main.api_evac_end(None))
+        self.assertEqual(sim.phase, "ended")
+        self.assertNotEqual(sim._archived_trial, sim.trial_seq)
+
+    def test_manual_end_is_idempotent_when_idle(self):
+        sim = EvacSim(main.maze, Path(tempfile.mkdtemp()))
+        with patch.object(main, "sim", sim):
+            result = asyncio.run(main.api_evac_end(None))
+        self.assertFalse(result["changed"])
+        self.assertIsNone(result.get("saved"))
+
+    def test_manual_end_retries_archive_after_storage_failure(self):
+        sim = EvacSim(main.maze, Path(tempfile.mkdtemp()))
+        sim.ensure_population(1)
+        sim.start()
+        sim.advance(0.2)
+        with patch.object(sim, "archive_trial", side_effect=[DataPersistenceError("read only"), {"json": "ok.json", "csv": "ok.csv"}]) as archive:
+            with self.assertRaises(DataPersistenceError):
+                sim.end()
+            self.assertEqual(sim.phase, "ended")
+            self.assertEqual(sim.end(), {"json": "ok.json", "csv": "ok.csv"})
+            self.assertEqual(archive.call_count, 2)
+
+    def test_invalid_scenario_does_not_archive_or_mutate_live_state(self):
+        before = {
+            "gen": main.maze.gen,
+            "mw": main.maze.mw,
+            "mh": main.maze.mh,
+            "trial_seq": main.sim.trial_seq,
+            "walls": copy.deepcopy(main.maze.walls),
+        }
+        bad = {
+            "mw": 4,
+            "mh": 4,
+            "cell": 32,
+            "walls": [[0, 0, 0, 0]],  # row count mismatch
+        }
+        with self.assertRaises(main.HTTPException):
+            main.apply_loaded_scenario(bad)
+        self.assertEqual(main.maze.gen, before["gen"])
+        self.assertEqual((main.maze.mw, main.maze.mh), (before["mw"], before["mh"]))
+        self.assertEqual(main.sim.trial_seq, before["trial_seq"])
+        self.assertEqual(main.maze.walls, before["walls"])
+
+    def test_scenario_apply_failure_rolls_back_map_and_simulation(self):
+        before_maze = copy.deepcopy(main.maze.__dict__)
+        before_rng_state = main.sim.rng.getstate()
+        before_sim = {
+            key: copy.deepcopy(value)
+            for key, value in main.sim.__dict__.items()
+            if key not in {"maze", "rng"}
+        }
+        scenario = {
+            "mw": main.maze.mw,
+            "mh": main.maze.mh,
+            "cell": main.maze.cell,
+            "walls": copy.deepcopy(main.maze.walls),
+            "exits": [list(main.maze.exit)],
+        }
+        with patch.object(main.sim, "archive_trial"), \
+             patch.object(main.sim, "apply_scenario_state", side_effect=ValueError("应用失败")):
+            with self.assertRaises(main.HTTPException) as raised:
+                main.apply_loaded_scenario(scenario)
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertEqual(main.maze.__dict__, before_maze)
+        self.assertEqual(
+            {key: value for key, value in main.sim.__dict__.items()
+             if key not in {"maze", "rng"}},
+            before_sim,
+        )
+        self.assertEqual(main.sim.rng.getstate(), before_rng_state)
+        self.assertIs(main.sim.maze, main.maze)
+
+    def test_invalid_scenario_controls_are_rejected_before_archive(self):
+        before_trial = main.sim.trial_seq
+        bad = {
+            "mw": main.maze.mw,
+            "mh": main.maze.mh,
+            "cell": main.maze.cell,
+            "walls": copy.deepcopy(main.maze.walls),
+            "exits": [list(main.maze.exit)],
+            "npc_target": 12.5,
+        }
+        with self.assertRaises(main.HTTPException):
+            main.apply_loaded_scenario(bad)
+        self.assertEqual(main.sim.trial_seq, before_trial)
+
+    def test_unknown_scenario_version_is_rejected_before_archive_or_map_mutation(self):
+        before = (main.maze.gen, main.maze.mw, main.maze.mh,
+                  copy.deepcopy(main.maze.walls))
+        bad = {
+            "version": 2,
+            "mw": 4,
+            "mh": 4,
+            "cell": 32,
+            "walls": [[15, 15, 15, 15] for _ in range(4)],
+        }
+        with patch.object(main.sim, "archive_trial") as archive:
+            with self.assertRaises(main.HTTPException) as raised:
+                main.apply_loaded_scenario(bad)
+        self.assertEqual(raised.exception.status_code, 400)
+        archive.assert_not_called()
+        self.assertEqual(
+            (main.maze.gen, main.maze.mw, main.maze.mh, main.maze.walls), before
+        )
+
+    def test_invalid_scenario_heating_is_rejected_before_archive(self):
+        before = (main.maze.gen, main.maze.mw, main.maze.mh, main.sim.trial_seq,
+                  copy.deepcopy(main.maze.walls))
+        bad = {
+            "mw": main.maze.mw,
+            "mh": main.maze.mh,
+            "cell": main.maze.cell,
+            "walls": copy.deepcopy(main.maze.walls),
+            "heating": [[main.maze.mw, 0, .5]],
+        }
+        with self.assertRaises(main.HTTPException):
+            main.apply_loaded_scenario(bad)
+        after = (main.maze.gen, main.maze.mw, main.maze.mh, main.sim.trial_seq,
+                 main.maze.walls)
+        self.assertEqual(after, before)
+
+    def test_invalid_scenario_fractional_fire_is_rejected_before_archive(self):
+        before = (main.maze.gen, main.maze.mw, main.maze.mh, main.sim.trial_seq,
+                  copy.deepcopy(main.maze.walls))
+        bad = {
+            "mw": main.maze.mw,
+            "mh": main.maze.mh,
+            "cell": main.maze.cell,
+            "walls": copy.deepcopy(main.maze.walls),
+            "fire": [[1.5, 0]],
+        }
+        with self.assertRaises(main.HTTPException):
+            main.apply_loaded_scenario(bad)
+        after = (main.maze.gen, main.maze.mw, main.maze.mh, main.sim.trial_seq,
+                 main.maze.walls)
+        self.assertEqual(after, before)
+
+    def test_invalid_scenario_wall_topology_is_rejected_before_archive(self):
+        walls = copy.deepcopy(main.maze.walls)
+        walls[0][0] ^= 2
+        before = (main.maze.gen, main.maze.mw, main.maze.mh, main.sim.trial_seq,
+                  copy.deepcopy(main.maze.walls))
+        bad = {"mw": main.maze.mw, "mh": main.maze.mh, "cell": main.maze.cell,
+               "walls": walls}
+        with self.assertRaises(main.HTTPException):
+            main.apply_loaded_scenario(bad)
+        after = (main.maze.gen, main.maze.mw, main.maze.mh, main.sim.trial_seq,
+                 main.maze.walls)
+        self.assertEqual(after, before)
+
+    def test_audit_event_redacts_sensitive_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            request = SimpleNamespace(
+                client=SimpleNamespace(host="127.0.0.1"),
+                method="POST",
+                url=SimpleNamespace(path="/api/experiment"),
+                state=SimpleNamespace(request_id="req-123"),
+            )
+            path = Path(tmp) / "audit.jsonl"
+            with patch.object(main, "AUDIT_LOG_PATH", path):
+                main.audit_event(
+                    "http_request", request, status=200,
+                    token="do-not-write", participant_id="S001", safe="ok",
+                )
+            record = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(record["request_id"], "req-123")
+            self.assertEqual(record["status"], 200)
+            self.assertEqual(record["safe"], "ok")
+            self.assertNotIn("token", record)
+            self.assertNotIn("participant_id", record)

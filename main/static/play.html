@@ -18,12 +18,41 @@
     pointer-events:none; text-shadow:0 1px 4px #000; z-index:10;
     color:#a8b8d8; }
   #you { color:#e8eefc; font-weight:600; pointer-events:auto; cursor:pointer; }
+  #participantButton {
+    pointer-events:auto; margin-left:8px; padding:4px 8px; border:1px solid rgba(120,160,230,.45);
+    border-radius:6px; background:rgba(12,20,38,.7); color:#b9c8e7; font:12px system-ui,"Microsoft YaHei",sans-serif;
+  }
+  #exitButton {
+    pointer-events:auto; margin-left:6px; padding:4px 8px; border:1px solid rgba(230,145,145,.45);
+    border-radius:6px; background:rgba(35,16,22,.78); color:#ffd0d0; font:12px system-ui,"Microsoft YaHei",sans-serif;
+  }
+  #participantActions { display:flex; align-items:center; white-space:nowrap; }
+  #sceneNotice {
+    position:fixed; left:50%; top:max(52px, env(safe-area-inset-top) + 48px);
+    transform:translateX(-50%); z-index:12; max-width:calc(100% - 24px);
+    padding:7px 11px; border:1px solid rgba(240,193,74,.55); border-radius:9px;
+    background:rgba(20,19,13,.82); color:#ffe29a; font-size:11px;
+    text-align:center; line-height:1.4; backdrop-filter:blur(8px);
+  }
+  #sceneNotice[hidden] { display:none; }
+  #sceneNotice a { color:#fff0bd; margin-left:5px; }
+  #xrButton {
+    position:fixed; right:14px; top:max(50px, env(safe-area-inset-top) + 44px);
+    z-index:20; display:none; border:1px solid rgba(130,180,255,.7);
+    border-radius:9px; padding:7px 10px; color:#dcecff;
+    background:rgba(20,35,65,.82); font-size:12px; backdrop-filter:blur(8px);
+  }
+  #xrButton.ready { display:block; }
   #status, #you {
-    max-width: 28%;
+    max-width: 32%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  #status { flex:1 1 auto; min-width:0; }
+  #you { max-width:72px; display:inline-block; vertical-align:middle; }
+  #participantActions button { min-height:32px; }
+  .participant-layer:focus { outline:none; }
 
   #controlBar {
     position: fixed;
@@ -175,9 +204,25 @@
   #consentLayer {
     position: fixed; inset: 0; z-index: 30; display: flex;
     align-items: center; justify-content: center;
-    background: #0b1020; padding: 20px; overflow: auto;
+    background: #0b1020; padding: 20px; overflow: auto; touch-action: pan-y;
   }
   #consentLayer.hidden { display: none; }
+  .participant-layer {
+    position:fixed; inset:0; z-index:40; display:flex; align-items:center; justify-content:center;
+    padding:20px; overflow:auto; background:rgba(7,11,20,.96); touch-action:pan-y;
+  }
+  .participant-layer[hidden] { display:none; }
+  .participant-card {
+    width:min(100%, 420px); padding:20px; border:1px solid #34415b; border-radius:8px;
+    background:#151d2d; color:#e8eefc; font-size:15px; line-height:1.55;
+  }
+  .participant-card h2 { margin:0 0 10px; font-size:19px; }
+  .participant-card p { margin:0 0 12px; color:#b9c2d6; }
+  .participant-card .primary-action, .participant-card .secondary-action {
+    width:100%; min-height:42px; margin-top:8px; border-radius:6px; font:600 14px system-ui,"Microsoft YaHei",sans-serif;
+  }
+  .participant-card .primary-action { border:0; background:#3d7bfd; color:#fff; }
+  .participant-card .secondary-action { border:1px solid #3a4668; background:#202943; color:#cdd5ee; }
   #consentCard {
     max-width: 420px; width: 100%; background: #161c30; color: #e8ecf8;
     border: 1px solid #2c3550; border-radius: 12px; padding: 18px;
@@ -190,6 +235,7 @@
     width: 100%; box-sizing: border-box; padding: 10px; font-size: 16px;
     border-radius: 8px; border: 1px solid #3a4668; background: #0f1425; color: #fff;
   }
+  #consentCard { touch-action:pan-y; }
   #consentCheckLabel {
     display: flex !important; gap: 8px; align-items: flex-start; font-size: 14px;
   }
@@ -199,7 +245,25 @@
     border: 0; border-radius: 8px; background: #3d7bfd; color: #fff; font-weight: 600;
   }
   #consentBtn:disabled { background: #39415a; color: #8f97ad; }
+  #switchParticipantBtn {
+    width: 100%; margin-top: 8px; padding: 10px; font-size: 14px;
+    border: 1px solid #3a4668; border-radius: 8px; background: #202943;
+    color: #cdd5ee;
+  }
   #consentError { color: #ff8a8a; margin-top: 8px; min-height: 18px; font-size: 14px; }
+  @media (orientation: landscape) and (max-height: 440px) {
+    #consentLayer, .participant-layer {
+      align-items:flex-start; justify-content:center; padding:8px 12px;
+    }
+    #consentCard, .participant-card {
+      max-height:calc(100vh - 16px); overflow-y:auto; overscroll-behavior:contain;
+      padding:14px; font-size:14px;
+    }
+    #consentCard p { margin-bottom:7px; }
+    #consentCard label { margin-top:8px; }
+    #consentBtn { margin-top:10px; padding:10px; }
+    #switchParticipantBtn { padding:8px; }
+  }
   #winBanner { position:fixed; left:50%; top:50%;
     transform:translate(-50%,-50%);
     background:rgba(30,200,90,0.95); color:#fff;
@@ -238,7 +302,7 @@
 
   #loading {
     position:fixed; left:50%; top:50%; transform:translate(-50%,-50%);
-    color:#8fa3c8; font-size:16px; z-index:200;
+    color:#8fa3c8; font-size:16px; z-index:25;
   }
 
   #rotate {
@@ -258,8 +322,14 @@
 
 <div id="hud">
   <span id="status" role="status" aria-live="polite">连接中…</span>
-  <span id="you" title="点击改名">—</span>
+  <span id="participantActions"><span id="you" title="点击改名">—</span><button id="participantButton" type="button">更换参与者</button><button id="exitButton" type="button">退出</button></span>
 </div>
+<div id="sceneNotice" hidden>
+  场景仅用于视觉预览；碰撞与 NPC 寻路仍使用网格迷宫。
+  <a href="#" id="toggleMazeBase">显示网格层</a>
+  <a href="/play?scene=maze">切换网格视图</a>
+</div>
+<button id="xrButton" type="button" aria-label="进入实验性 VR 预览">进入 VR 预览</button>
 <div id="vitals" aria-label="自身状态">
   <div class="vital"><span>血量</span><div class="bar"><i id="hpFill"></i></div></div>
   <div class="vital"><span>烟气</span><div class="bar smoke"><i id="smFill"></i></div></div>
@@ -293,7 +363,9 @@
   </div>
 </div>
 
-<div id="consentLayer" role="dialog" aria-modal="true" aria-label="参与须知">
+<!-- 默认隐藏：脚本挂好事件后再由 showConsentLayer() 显示，
+     避免用户在初始化前输入编号又被初始化逻辑清空。 -->
+<div id="consentLayer" class="hidden" role="dialog" aria-modal="true" aria-label="参与须知">
   <div id="consentCard">
     <h2>参与须知</h2>
     <p>你将在一个虚拟迷宫中尝试找到出口，过程中可能出现烟雾、火灾和人群拥挤的模拟效果，不会造成真实伤害。</p>
@@ -305,7 +377,23 @@
       我已阅读并同意参加本次实验，可随时退出
     </label>
     <button id="consentBtn" disabled>同意并进入</button>
+    <button id="switchParticipantBtn" type="button">更换参与者</button>
     <div id="consentError" role="alert"></div>
+  </div>
+</div>
+<div id="exitConfirmLayer" class="participant-layer" role="dialog" aria-modal="true" aria-labelledby="exitConfirmTitle" hidden>
+  <div class="participant-card">
+    <h2 id="exitConfirmTitle">退出本次实验？</h2>
+    <p>确认后，本设备会立即停止发送操作并断开连接。已经记录的轨迹不会自动删除；如需申请撤回，请联系主试。</p>
+    <button id="confirmExitBtn" class="primary-action" type="button">确认退出</button>
+    <button id="cancelExitBtn" class="secondary-action" type="button">继续参与</button>
+  </div>
+</div>
+<div id="exitCompleteLayer" class="participant-layer" role="dialog" aria-modal="true" aria-labelledby="exitCompleteTitle" hidden>
+  <div class="participant-card">
+    <h2 id="exitCompleteTitle">已退出实验</h2>
+    <p>此设备已断开连接，移动操作已停止。已记录的数据不会自动删除；数据撤回请联系主试。</p>
+    <button id="rejoinBtn" class="primary-action" type="button">返回参与须知</button>
   </div>
 </div>
 <div id="winBanner">出口到达，已安全撤离</div>
@@ -325,11 +413,31 @@
 
 <script type="module">
 let THREE;
+let GLTFLoader;
+let MeshoptDecoder = null;
+let meshoptDecoderPromise = null;
 try {
   THREE = await import('three');
+  ({ GLTFLoader } = await import('/static/vendor/GLTFLoader.js'));
 } catch (error) {
   document.getElementById('loading').textContent = '3D 资源加载失败，请检查连接后刷新';
   throw error;
+}
+// 不在页面启动阶段导入 meshopt，避免部分移动浏览器被可选 WASM 解码器卡住。
+async function ensureMeshoptDecoder() {
+  if (MeshoptDecoder) return MeshoptDecoder;
+  if (!meshoptDecoderPromise) {
+    meshoptDecoderPromise = import('/static/vendor/meshopt_decoder.module.js')
+      .then(module => {
+        MeshoptDecoder = module.MeshoptDecoder;
+        return MeshoptDecoder;
+      })
+      .catch(error => {
+        console.warn('meshopt 解码器不可用，将忽略压缩版场景文件', error);
+        return null;
+      });
+  }
+  return meshoptDecoderPromise;
 }
 
 // ================= 状态 =================
@@ -391,8 +499,53 @@ try {
   renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setClearColor(0x05080e);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
 } catch (error) {
   loadingEl.textContent = '无法启动 3D 画面，请使用支持 WebGL 的浏览器';
+}
+
+const xrButton = document.getElementById('xrButton');
+let xrSession = null;
+let xrActive = false;
+async function setupWebXR() {
+  if (!renderer || !xrButton || !navigator.xr || !navigator.xr.isSessionSupported) return;
+  try {
+    const supported = await navigator.xr.isSessionSupported('immersive-vr');
+    if (!supported) return;
+    renderer.xr.enabled = true;
+    xrButton.classList.add('ready');
+    xrButton.addEventListener('click', async () => {
+      if (xrSession) {
+        await xrSession.end();
+        return;
+      }
+      try {
+        xrSession = await navigator.xr.requestSession('immersive-vr', {
+          optionalFeatures: ['local-floor', 'bounded-floor'],
+        });
+        xrActive = true;
+        renderer.setAnimationLoop(animate);
+        xrSession.addEventListener('end', () => {
+          xrSession = null;
+          xrActive = false;
+          renderer.setAnimationLoop(null);
+          xrButton.textContent = '进入 VR 预览';
+          animate();
+        });
+        await renderer.xr.setSession(xrSession);
+        xrButton.textContent = '退出 VR 预览';
+      } catch (error) {
+        console.warn('WebXR 启动失败:', error);
+        xrSession = null;
+        xrActive = false;
+        xrButton.textContent = '进入 VR 预览';
+      }
+    });
+  } catch (error) {
+    console.warn('WebXR 检测失败:', error);
+  }
 }
 
 const scene = new THREE.Scene();
@@ -400,15 +553,28 @@ const camera = new THREE.PerspectiveCamera(78, 1, 0.5, 3000);
 camera.rotation.order = 'YXZ';
 
 // 光照
-scene.add(new THREE.AmbientLight(0x8899bb, 0.9));
-const dl1 = new THREE.DirectionalLight(0xffffff, 0.7);
+scene.background = new THREE.Color(0x303946);
+scene.add(new THREE.AmbientLight(0xc2d0df, 1.45));
+const dl1 = new THREE.DirectionalLight(0xffffff, 1.35);
 dl1.position.set(0.5, 1, 0.3);
 scene.add(dl1);
-const dl2 = new THREE.DirectionalLight(0x6e8fd8, 0.4);
+const dl2 = new THREE.DirectionalLight(0x9bb9df, 0.75);
 dl2.position.set(-0.5, 0.8, -0.5);
 scene.add(dl2);
 
 let mazeGroup = null;
+let buildingGroup = null;
+let buildingLoading = null;
+let buildingLoadFailed = false;
+// 场景与模型均从服务端 scene-config.json 清单选择，换建筑时无需改客户端逻辑。
+let buildingModelUrl = '';
+let buildingModelBytes = 0;
+let buildingModelTriangles = 0;
+let scenePlacement = { fit: 0.92, rotationY: 0, centerX: 0.5, centerZ: 0.5 };
+let sceneTitle = '真实 3D 场景';
+// 学校场景默认把网格墙/天花板藏起来，只留真实模型；这个开关可以随时叠回来对照。
+let mazeBaseVisible = false;
+const modelPreference = new URLSearchParams(window.location.search).get('model') || 'auto';
 let fireGroup = null;
 let smokeGroup = null;
 let crowdMesh = null;
@@ -422,6 +588,26 @@ let lastSmokeKey = '';
 let smokeByCell = new Map();
 let baseFogDist = 200;
 const smokeVeil = document.getElementById('smokeVeil');
+const sceneMode = new URLSearchParams(window.location.search).get('scene') === 'maze'
+  ? 'maze' : 'school';
+const useBuildingScene = sceneMode === 'school';
+const sceneNotice = document.getElementById('sceneNotice');
+sceneNotice.hidden = !useBuildingScene;
+const toggleMazeBaseEl = document.getElementById('toggleMazeBase');
+if (toggleMazeBaseEl) {
+  toggleMazeBaseEl.addEventListener('click', event => {
+    event.preventDefault();
+    setMazeBaseVisibility(!mazeBaseVisible);
+    updateSceneNotice();
+  });
+}
+
+// 提示条上的开关文字跟着状态走。
+function updateSceneNotice() {
+  if (toggleMazeBaseEl) {
+    toggleMazeBaseEl.textContent = mazeBaseVisible ? '隐藏网格层' : '显示网格层';
+  }
+}
 
 function clearMaze() {
   if (mazeGroup) {
@@ -437,6 +623,201 @@ function clearMaze() {
   }
 }
 
+function setMazeBaseVisibility(visible) {
+  mazeBaseVisible = visible;
+  if (!mazeGroup) return;
+  mazeGroup.traverse(obj => {
+    if (obj.userData && obj.userData.hideWhenBuilding) obj.visible = visible;
+  });
+}
+
+// 从统一场景清单选择当前建筑的模型；URL model 参数可用于调试指定某个文件。
+async function resolveBuildingModel() {
+  const res = await fetch('/api/scene-models?legacy=1', { cache: 'no-store' });
+  if (!res.ok) throw new Error('场景清单 HTTP ' + res.status);
+  const manifest = await res.json();
+  const scenes = Array.isArray(manifest.scenes) ? manifest.scenes : [];
+  const active = manifest.active || (scenes[0] && scenes[0].id);
+  const activeScene = scenes.find(item => item.id === active) || scenes[0];
+  const models = activeScene && Array.isArray(activeScene.models) ? activeScene.models : [];
+  if (!models.length) throw new Error('场景清单中没有可用模型');
+  sceneTitle = activeScene.name || activeScene.id || sceneTitle;
+  scenePlacement = { ...scenePlacement, ...(activeScene.placement || {}) };
+
+  const forced = modelPreference === 'sq' ? 'meshopt' : modelPreference;
+  let candidates = [...models].sort((a, b) => Number(!!b.preferred) - Number(!!a.preferred));
+  if (forced && forced !== 'auto') {
+    const match = candidates.find(model => {
+      const name = model.name || model.url || '';
+      if (forced === 'meshopt') return /meshopt/i.test(name);
+      if (forced === 'opt') return /_opt\./i.test(name);
+      if (forced === 'full') return !/_meshopt|_opt\./i.test(name);
+      return name.includes(forced);
+    });
+    if (match) candidates = [match, ...candidates.filter(model => model !== match)];
+  }
+  for (const model of candidates) {
+    if (!model.url) continue;
+    if (model.meshopt && !(await ensureMeshoptDecoder())) continue;
+    buildingModelBytes = model.bytes || 0;
+    return model;
+  }
+  throw new Error('当前浏览器没有可解码的场景模型');
+}
+
+function isLandscapeViewport() {
+  // Portrait devices already show the rotate overlay. Do not spend tens of MB
+  // loading a visual-only model until the player can actually see it.
+  return window.innerWidth >= window.innerHeight;
+}
+
+function maybeLoadBuildingModel() {
+  if (!useBuildingScene || !me || !isLandscapeViewport()) return;
+  if (!buildingGroup && !buildingLoading && !buildingLoadFailed) loadBuildingModel();
+}
+
+async function loadBuildingModel() {
+  if (buildingGroup || buildingLoading || buildingLoadFailed) return buildingLoading;
+
+  buildingLoading = (async () => {
+    loadingEl.textContent = `正在加载${sceneTitle}（文件较大，请稍候）…`;
+    loadingEl.style.display = 'block';
+    try {
+      const selectedModel = await resolveBuildingModel();
+      buildingModelUrl = selectedModel.url;
+      const sizeNote = buildingModelBytes
+        ? `（约 ${(buildingModelBytes / 1024 / 1024).toFixed(0)} MB）` : '';
+      loadingEl.textContent = `正在加载${sceneTitle}${sizeNote}…`;
+      const loader = new GLTFLoader();
+      if (MeshoptDecoder) loader.setMeshoptDecoder(MeshoptDecoder);
+      const loadGltf = url => new Promise((resolve, reject) => {
+        loader.load(
+          url,
+          resolve,
+          xhr => {
+            const loadedMb = (xhr.loaded / 1024 / 1024).toFixed(0);
+            if (xhr.total > 0) {
+              const percent = Math.min(100, Math.round(xhr.loaded / xhr.total * 100));
+              loadingEl.textContent = `正在加载${sceneTitle}… ${percent}%（${loadedMb} MB）`;
+            } else {
+              loadingEl.textContent = `正在加载${sceneTitle}… ${loadedMb} MB`;
+            }
+          },
+          reject,
+        );
+      });
+      let gltf;
+      try {
+        gltf = await loadGltf(buildingModelUrl);
+      } catch (firstError) {
+        const fallback = await fetch('/api/scene-models?legacy=1', { cache: 'no-store' })
+          .then(r => r.json()).catch(() => ({}));
+        const alternatives = fallback && Array.isArray(fallback.scenes)
+          ? (fallback.scenes.find(item => item.id === fallback.active)?.models || [])
+              .filter(item => item.url && item.url !== selectedModel.url && !item.meshopt)
+          : [];
+        if (!alternatives.length) throw firstError;
+        const nextModel = alternatives.find(item => item.fallback) || alternatives[0];
+        buildingModelUrl = nextModel.url;
+        buildingModelBytes = nextModel.bytes || 0;
+        loadingEl.textContent = '当前模型格式不兼容，切换兼容场景…';
+        console.warn('场景模型加载失败，改用兼容版本', firstError);
+        gltf = await loadGltf(buildingModelUrl);
+      }
+      const root = gltf.scene;
+      root.rotation.y = Number(scenePlacement.rotationY) || 0;
+      root.updateMatrixWorld(true);
+
+      const sourceBox = new THREE.Box3().setFromObject(root);
+      const sourceSize = sourceBox.getSize(new THREE.Vector3());
+      if (!sourceSize.x || !sourceSize.z) {
+        throw new Error('学校模型没有有效的水平尺寸');
+      }
+
+      // 这是视觉预览场景，模型要放到当前玩家附近；后端碰撞仍使用网格地图。
+      const fit = Math.max(0.2, Math.min(1.2, Number(scenePlacement.fit) || 0.92));
+      const area = scenePlacement.simulationArea || {};
+      const clamp01 = (value, fallback) => Math.max(0, Math.min(1, Number.isFinite(Number(value)) ? Number(value) : fallback));
+      let areaMinX = clamp01(area.minX, 0), areaMinZ = clamp01(area.minZ, 0);
+      let areaMaxX = clamp01(area.maxX, 1), areaMaxZ = clamp01(area.maxZ, 1);
+      if (areaMaxX <= areaMinX || areaMaxZ <= areaMinZ) {
+        areaMinX = areaMinZ = 0; areaMaxX = areaMaxZ = 1;
+      }
+      const areaWidth = areaMaxX - areaMinX, areaDepth = areaMaxZ - areaMinZ;
+      const targetWidth = WORLD_W * fit / areaWidth;
+      const targetDepth = WORLD_H * fit / areaDepth;
+      const scale = Math.min(targetWidth / sourceSize.x, targetDepth / sourceSize.z);
+      const anchorX = WORLD_W * clamp01(scenePlacement.centerX, 0.5);
+      const anchorZ = WORLD_H * clamp01(scenePlacement.centerZ, 0.5);
+      const modelMinX = anchorX - sourceSize.x * scale * (areaMinX + areaWidth / 2);
+      const modelMinZ = anchorZ - sourceSize.z * scale * (areaMinZ + areaDepth / 2);
+      root.scale.setScalar(scale);
+      root.position.set(
+        modelMinX - sourceBox.min.x * scale,
+        -sourceBox.min.y * scale,
+        modelMinZ - sourceBox.min.z * scale
+      );
+      root.updateMatrixWorld(true);
+
+      let meshCount = 0;
+      buildingModelTriangles = 0;
+      root.traverse(obj => {
+        if (!obj.isMesh) return;
+        meshCount++;
+        const geom = obj.geometry;
+        if (geom && geom.index) buildingModelTriangles += geom.index.count / 3;
+        else if (geom && geom.attributes && geom.attributes.position) {
+          buildingModelTriangles += geom.attributes.position.count / 3;
+        }
+        obj.frustumCulled = true;
+        obj.castShadow = false;
+        obj.receiveShadow = true;
+        if (Array.isArray(obj.material)) {
+          obj.material.forEach(mat => { mat.needsUpdate = true; });
+        } else if (obj.material) {
+          obj.material.needsUpdate = true;
+        }
+      });
+
+      buildingGroup = new THREE.Group();
+      buildingGroup.name = 'visual-scene-model';
+      buildingGroup.add(root);
+      scene.add(buildingGroup);
+      setMazeBaseVisibility(false);
+      updateSceneNotice();
+      // 模型文件较大，且预览模型位于玩家附近，扩大可见距离避免被旧迷雾裁掉。
+      const modelDepth = sourceSize.z * scale;
+      baseFogDist = Math.max(VIEW_W * 3.2, modelDepth * 1.25, 900);
+      scene.fog.near = baseFogDist * 0.08;
+      scene.fog.far = baseFogDist;
+      camera.far = baseFogDist * 1.4;
+      camera.updateProjectionMatrix();
+      window.__mazeDebug = {
+        scene: sceneMode,
+        model: buildingModelUrl.slice(buildingModelUrl.lastIndexOf('/') + 1),
+        meshopt: buildingModelUrl.includes('_meshopt'),
+        bytes: buildingModelBytes,
+        meshes: meshCount,
+        triangles: Math.round(buildingModelTriangles),
+        meshoptDecoder: !!MeshoptDecoder,
+      };
+      loadingEl.style.display = 'none';
+      return buildingGroup;
+    } catch (error) {
+      buildingLoadFailed = true;
+      console.error(`${sceneTitle}加载失败:`, error);
+      loadingEl.textContent = `${sceneTitle}加载失败，已保留网格迷宫`;
+      loadingEl.style.display = 'block';
+      setMazeBaseVisibility(true);
+      return null;
+    } finally {
+      buildingLoading = null;
+    }
+  })();
+
+  return buildingLoading;
+}
+
 function buildMaze() {
   clearMaze();
   mazeGroup = new THREE.Group();
@@ -444,10 +825,11 @@ function buildMaze() {
   // 地板
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(WORLD_W, WORLD_H),
-    new THREE.MeshLambertMaterial({ color: 0x1a2236 })
+    new THREE.MeshLambertMaterial({ color: useBuildingScene ? 0x646b6b : 0x1a2236 })
   );
+  floor.name = 'maze-floor';
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(WORLD_W / 2, 0, WORLD_H / 2);
+  floor.position.set(WORLD_W / 2, useBuildingScene ? -0.6 : 0, WORLD_H / 2);
   mazeGroup.add(floor);
 
   // 地板网格
@@ -464,6 +846,8 @@ function buildMaze() {
     new THREE.BufferGeometry().setFromPoints(gridPts),
     new THREE.LineBasicMaterial({ color: 0x26304a, transparent: true, opacity: 0.6 })
   );
+  grid.name = 'maze-grid';
+  grid.userData.hideWhenBuilding = true;
   mazeGroup.add(grid);
 
   // 天花板
@@ -471,6 +855,8 @@ function buildMaze() {
     new THREE.PlaneGeometry(WORLD_W, WORLD_H),
     new THREE.MeshBasicMaterial({ color: 0x0a0e1a, side: THREE.DoubleSide })
   );
+  ceil.name = 'maze-ceiling';
+  ceil.userData.hideWhenBuilding = true;
   ceil.rotation.x = Math.PI / 2;
   ceil.position.set(WORLD_W / 2, WALL_HEIGHT + 2, WORLD_H / 2);
   mazeGroup.add(ceil);
@@ -516,6 +902,8 @@ function buildMaze() {
         }
       }
     }
+    mesh.name = 'maze-walls';
+    mesh.userData.hideWhenBuilding = true;
     mesh.count = i;
     mesh.instanceMatrix.needsUpdate = true;
     mazeGroup.add(mesh);
@@ -529,6 +917,8 @@ function buildMaze() {
       new THREE.PlaneGeometry(CELL * 0.9, CELL * 0.9),
       new THREE.MeshBasicMaterial({ color: 0x2ee060 })
     );
+    exitFloor.name = 'maze-exit-floor';
+    exitFloor.userData.hideWhenBuilding = true;
     exitFloor.rotation.x = -Math.PI / 2;
     exitFloor.position.set(ex, 0.15, ez);
     mazeGroup.add(exitFloor);
@@ -539,6 +929,8 @@ function buildMaze() {
         side: THREE.DoubleSide, depthWrite: false
       })
     );
+    exitPillar.name = 'maze-exit-pillar';
+    exitPillar.userData.hideWhenBuilding = true;
     exitPillar.position.set(ex, 40, ez);
     mazeGroup.add(exitPillar);
   });
@@ -547,11 +939,23 @@ function buildMaze() {
 
   // 雾效 = 视野限制；进入烟气后会再缩短。
   baseFogDist = Math.max(VIEW_W * 1.4, CELL * 4);
-  scene.fog = new THREE.Fog(0x05080e, baseFogDist * 0.35, baseFogDist);
+      scene.fog = new THREE.Fog(
+        useBuildingScene ? 0x303946 : 0x05080e,
+        baseFogDist * (useBuildingScene ? 0.08 : 0.35),
+        baseFogDist
+      );
   camera.far = baseFogDist * 1.3;
   camera.updateProjectionMatrix();
 
   camInit = false;
+  if (!useBuildingScene) {
+    setMazeBaseVisibility(true);
+    loadingEl.style.display = 'none';
+  } else if (buildingGroup) {
+    setMazeBaseVisibility(false);
+  }
+  // 学校场景的加载推迟到拿到玩家出生点之后（见 applyCrowdState），
+  // 否则 anchorX / anchorZ 只能退回到网格左上角，玩家会被放进墙体里。
 }
 
 // ================= 尺寸 =================
@@ -562,8 +966,14 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener('resize', resize);
-window.addEventListener('orientationchange', () => setTimeout(resize, 100));
+window.addEventListener('resize', () => {
+  resize();
+  maybeLoadBuildingModel();
+});
+window.addEventListener('orientationchange', () => setTimeout(() => {
+  resize();
+  maybeLoadBuildingModel();
+}, 100));
 resize();
 
 // ================= 输入 =================
@@ -825,16 +1235,26 @@ function connect() {
   if (connectionReplaced || (ws && (ws.readyState === 0 || ws.readyState === 1))) return;
   clearTimeout(reconnectTimer);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(
+  const socket = new WebSocket(
     `${proto}://${location.host}/ws/player?pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}`
     + `&participant=${encodeURIComponent(participant)}&consent=${consentGiven ? 'true' : 'false'}`
   );
-  ws.onopen = () => { retryDelay = 1000; statusEl.textContent = '已连接'; releaseControls(); };
-  ws.onclose = event => {
+  ws = socket;
+  socket.onopen = () => { retryDelay = 1000; statusEl.textContent = '已连接'; releaseControls(); };
+  socket.onclose = event => {
+    // A previous socket may close after a replacement has already connected.
+    // Its close event must not schedule a second reconnect or overwrite state.
+    if (ws !== socket) return;
     releaseControls();
+    if (connectionReplaced) return;
     if (event.code === 4001 || event.code === 4003) {
       connectionReplaced = true;
       statusEl.textContent = event.code === 4001 ? '此玩家已在另一页面连接，请关闭此页' : '人数已满，请稍后刷新';
+      return;
+    }
+    if (event.code === 4006) {
+      connectionReplaced = true;
+      statusEl.textContent = '本场已结束，请等待主机开始新场';
       return;
     }
     if (event.code === 4004 || event.code === 4005) {
@@ -850,9 +1270,11 @@ function connect() {
     reconnectTimer = setTimeout(connect, retryDelay + Math.random() * 300);
     retryDelay = Math.min(retryDelay * 2, 15000);
   };
-  ws.onerror = () => { statusEl.textContent = '连接错误'; };
-  ws.onmessage = ev => {
-    const msg = JSON.parse(ev.data);
+  socket.onerror = () => { if (ws === socket) statusEl.textContent = '连接错误'; };
+  socket.onmessage = ev => {
+    if (ws !== socket) return;
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (error) { return; }
     if (msg.type === 'init' || msg.type === 'maze') {
       CELL = msg.cell; MW = msg.mw; MH = msg.mh;
       WORLD_W = msg.world.w; WORLD_H = msg.world.h;
@@ -874,7 +1296,6 @@ function connect() {
       }
 
       buildMaze();
-      loadingEl.style.display = 'none';
       applyCrowdState(msg);
     } else if (msg.type === 'state') {
       applyCrowdState(msg);
@@ -923,6 +1344,9 @@ function applyCrowdState(msg) {
     me = { pid, x: p.x, y: p.y, vx: p.vx || 0, vy: p.vy || 0, won: !!p.e, failed: !!p.f,
            hp: p.hp == null ? 1 : p.hp, sc: p.sc == null ? 0 : p.sc, cause: p.cause || '' };
     updateVitals();
+    // 现在才知道出生点，学校场景此时才加载，锚点才是准确的。
+    // 竖屏时先不下载大模型，旋转到横屏后由 orientationchange 触发。
+    maybeLoadBuildingModel();
     if (p.e && !hasWon) {
       hasWon = true;
       winBanner.textContent = '已安全撤离';
@@ -1061,7 +1485,7 @@ function applyLocalSmoke() {
   const far = Math.max(CELL * 2.2, baseFogDist * cut);
   scene.fog.near = Math.max(2, far * 0.22);
   scene.fog.far = far;
-  scene.fog.color.set(sm > 0.08 ? 0x3c3f48 : 0x05080e);
+  scene.fog.color.set(sm > 0.08 ? 0x3c3f48 : (useBuildingScene ? 0x303946 : 0x05080e));
   camera.far = far * 1.35;
   camera.updateProjectionMatrix();
 }
@@ -1092,7 +1516,7 @@ setInterval(() => sendInput(moveDir !== 0 || moveFwd !== 0 || moveStrafe !== 0),
 // ================= 主循环 =================
 let lastT = performance.now();
 function animate() {
-  requestAnimationFrame(animate);
+  if (!xrActive) requestAnimationFrame(animate);
   if (!renderer) return;
   if (document.hidden) { lastT = performance.now(); return; }
   const now = performance.now();
@@ -1143,6 +1567,11 @@ const consentLayer = document.getElementById('consentLayer');
 const participantInput = document.getElementById('participantInput');
 const consentCheck = document.getElementById('consentCheck');
 const consentBtn = document.getElementById('consentBtn');
+const switchParticipantBtn = document.getElementById('switchParticipantBtn');
+const participantButton = document.getElementById('participantButton');
+const exitButton = document.getElementById('exitButton');
+const exitConfirmLayer = document.getElementById('exitConfirmLayer');
+const exitCompleteLayer = document.getElementById('exitCompleteLayer');
 const consentError = document.getElementById('consentError');
 
 function refreshConsentButton() {
@@ -1154,9 +1583,61 @@ function showConsentLayer() {
   consentError.textContent = '';
   refreshConsentButton();
   consentLayer.classList.remove('hidden');
+  requestAnimationFrame(() => participantInput.focus({ preventScroll: true }));
+}
+function switchParticipant() {
+  connectionReplaced = true;
+  clearTimeout(reconnectTimer);
+  releaseControls();
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+    ws.close(1000, 'participant switched');
+  }
+  pid = 'p' + Math.random().toString(36).slice(2, 10);
+  name = '玩家' + pid.slice(1, 4);
+  participant = '';
+  consentGiven = false;
+  me = null;
+  hasWon = false;
+  localStorage.setItem('maze_pid', pid);
+  localStorage.setItem('maze_name', name);
+  localStorage.removeItem('maze_participant');
+  localStorage.removeItem('maze_consent');
+  youEl.textContent = name;
+  winBanner.style.display = 'none';
+  statusEl.textContent = '请填写新的参与者编号';
+  showConsentLayer();
+}
+function confirmExit() {
+  connectionReplaced = true;
+  clearTimeout(reconnectTimer);
+  releaseControls();
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+    ws.close(1000, 'participant exited');
+  }
+  consentGiven = false;
+  localStorage.removeItem('maze_consent');
+  exitConfirmLayer.hidden = true;
+  exitCompleteLayer.hidden = false;
+  statusEl.textContent = '已退出实验';
+  requestAnimationFrame(() => document.getElementById('rejoinBtn').focus({ preventScroll: true }));
 }
 participantInput.addEventListener('input', refreshConsentButton);
 consentCheck.addEventListener('change', refreshConsentButton);
+switchParticipantBtn.addEventListener('click', switchParticipant);
+participantButton.addEventListener('click', switchParticipant);
+exitButton.addEventListener('click', () => {
+  exitConfirmLayer.hidden = false;
+  requestAnimationFrame(() => document.getElementById('confirmExitBtn').focus({ preventScroll: true }));
+});
+document.getElementById('cancelExitBtn').addEventListener('click', () => {
+  exitConfirmLayer.hidden = true;
+  exitButton.focus({ preventScroll: true });
+});
+document.getElementById('confirmExitBtn').addEventListener('click', confirmExit);
+document.getElementById('rejoinBtn').addEventListener('click', () => {
+  exitCompleteLayer.hidden = true;
+  showConsentLayer();
+});
 consentBtn.addEventListener('click', () => {
   const value = participantInput.value.trim();
   if (!value) { consentError.textContent = '请填写参与者编号'; return; }
@@ -1173,8 +1654,10 @@ consentBtn.addEventListener('click', () => {
 if (!participant || !consentGiven) {
   showConsentLayer();
 } else {
+  consentLayer.classList.add('hidden');
   connect();
 }
+setupWebXR();
 animate();
 </script>
 </body>

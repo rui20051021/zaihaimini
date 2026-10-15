@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>迷宫 · 3D 手机端</title>
+<script type="importmap">{"imports":{"three":"/static/vendor/three.module.js"}}</script>
+<link rel="modulepreload" href="/static/vendor/three.module.js">
+<link rel="modulepreload" href="/static/vendor/GLTFLoader.js">
+<link rel="modulepreload" href="/static/vendor/meshopt_decoder.module.js">
+<link rel="modulepreload" href="/static/utils/participant-motion.mjs?v=3">
+<link rel="modulepreload" href="/static/utils/render-performance.mjs?v=1">
+<script>
+// Begin metadata/model transfer while the rendering modules are still loading.
+window.initialSceneState=fetch('/api/v2/state',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('场景读取失败');return r.json()}).then(s=>{
+  const url=s.scene?.model_url_mobile||s.scene?.model_url;
+  if(url){const link=document.createElement('link');link.rel='preload';link.as='fetch';link.crossOrigin='anonymous';link.href=url;document.head.append(link);}
+  return s;
+});
+window.initialSceneState.catch(()=>{});
+</script>
+
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07101b;color:#f2f7ff;font-family:system-ui,"Microsoft YaHei",sans-serif}button,input{font:inherit}button{border:1px solid #416083;background:#13263b;color:#f4f8ff;border-radius:10px;padding:10px 14px}button:disabled{opacity:.45}#view{position:fixed;inset:0;width:100%;height:100%;display:block;background:#091523}.shade{position:fixed;inset:0;pointer-events:none;background:linear-gradient(180deg,#06101caa 0%,transparent 32%,transparent 68%,#06101ccc 100%)}.top{z-index:3;position:fixed;top:max(14px,env(safe-area-inset-top));left:14px;right:14px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;pointer-events:none}.brand,.statusbox,.panel,.controls,.consent{pointer-events:auto}.brand{font-weight:800;text-shadow:0 2px 10px #000}.brand small{display:block;color:#b7cbe2;font-weight:500;font-size:11px;margin-top:3px}.statusbox{background:#081727d9;border:1px solid #355171;border-radius:999px;padding:7px 11px;font-size:12px;color:#c9d9ed;white-space:nowrap}.statusbox.ok{border-color:#3eae82;color:#aaffd0}.statusbox.err{border-color:#d56565;color:#ffd0d0}.door-card{z-index:4;position:fixed;left:14px;top:92px;max-width:calc(100% - 28px);background:#081727e8;border:1px solid #42617f;border-radius:10px;padding:9px;color:#d8e9fb;font-size:12px;display:flex;gap:8px;align-items:center}.door-card button{padding:6px 9px;background:#1a7185}.door-card.bad{border-color:#cf6c6c;color:#ffd0d0}.panel{z-index:3;position:fixed;left:14px;bottom:max(14px,env(safe-area-inset-bottom));max-width:calc(100% - 28px);display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pill{background:#081727d9;border:1px solid #355171;border-radius:999px;padding:7px 10px;font-size:11px}.pill b{color:#9be9ff}.controls{z-index:4;position:fixed;right:14px;bottom:max(14px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(3,54px);grid-template-rows:repeat(3,48px);gap:6px}.controls button{padding:0;font-size:20px;touch-action:none;background:#10243ad9}.controls .forward{grid-column:2;grid-row:1}.controls .left{grid-column:1;grid-row:2}.controls .right{grid-column:3;grid-row:2}.controls .back{grid-column:2;grid-row:3}.look{position:fixed;inset:20% 0 20% 32%;touch-action:none;z-index:1}.small-actions{z-index:4;position:fixed;right:14px;top:70px;display:flex;gap:6px}.small-actions button{font-size:11px;padding:7px 9px;background:#081727d9}.consent-wrap{position:fixed;inset:0;display:grid;place-items:center;background:#050c16cc;z-index:8;padding:20px}.consent{width:min(440px,100%);background:#101f32;border:1px solid #476689;border-radius:16px;padding:20px;box-shadow:0 20px 80px #0009}.consent h1{margin:0 0 8px;font-size:20px}.consent p{font-size:13px;line-height:1.65;color:#bdd0e8}.consent input[type=text]{width:100%;padding:11px;background:#081522;color:#fff;border:1px solid #476689;border-radius:9px;margin:7px 0 12px}.consent label{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.5;color:#c7d8ea;margin:12px 0}.consent button{width:100%;background:#1a7c67;border-color:#52c99d}.error{min-height:18px;color:#ffaaa8;font-size:12px;margin-top:8px}.loader{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);padding:10px 14px;background:#081727dd;border:1px solid #42617f;border-radius:10px;color:#cfe4fb;z-index:4}.hidden{display:none!important}.control-mode{z-index:5;position:fixed;right:14px;top:112px;display:flex;gap:5px}.control-mode button{font-size:11px;padding:7px 9px;background:#081727d9}.control-mode button.active{background:#1a7185;border-color:#5be1ea}.stick-zone{display:none;position:fixed;left:0;bottom:0;width:48%;height:52%;z-index:4;touch-action:none}.stick-base{position:absolute;left:50%;bottom:26px;width:122px;height:122px;transform:translateX(-50%);border:2px solid #9dc7e688;border-radius:50%;background:#0d2742aa}.stick-knob{position:absolute;left:50%;top:50%;width:54px;height:54px;transform:translate(-50%,-50%);border-radius:50%;background:#5ed9e8cc;border:2px solid #d3fbff;box-shadow:0 0 20px #39d6ff66}.stick-hint{position:absolute;left:16px;bottom:164px;color:#b8cee6;background:#081727aa;border:1px solid #355171;border-radius:8px;padding:7px 9px;font-size:11px}.body-stick .controls{display:none}.body-stick .stick-zone{display:block}.body-stick .look{left:48%;inset-block:18%;z-index:3}.body-stick .control-mode{top:112px}@media(max-width:699px){.control-mode{top:104px}.small-actions{top:58px}.body-stick .look{left:48%}}@media(min-width:700px){.controls{right:28px;bottom:28px}.panel{left:28px;bottom:28px}.top{left:28px;right:28px}}
+
+/* UI refresh: mobile-first control hierarchy and unobstructed first-person view. */
+:root{--glass:#071727e8;--line:#3a5b7c;--cyan:#56dce7;--muted:#a9c1db}
+body{background:#050d17}
+#view{background:#071321}
+.shade{background:linear-gradient(180deg,#03101dcc 0%,transparent 24%,transparent 70%,#03101de8 100%)}
+.top{top:max(12px,env(safe-area-inset-top));left:12px;right:12px;align-items:center}
+.brand{padding:9px 11px;border:1px solid #385674;border-radius:12px;background:#061626c9;backdrop-filter:blur(9px);text-shadow:none;box-shadow:0 8px 24px #0004}.brand small{color:#a9c3dd;font-size:10px}
+.statusbox{padding:8px 11px;background:var(--glass);border-color:#3eae82;box-shadow:none;backdrop-filter:none}
+.small-actions{top:max(60px,calc(env(safe-area-inset-top) + 48px));right:12px}.small-actions button{background:#071727e8;border-color:#3b5b7a;border-radius:9px;padding:7px 9px;box-shadow:0 6px 14px #0004}
+.control-mode{top:max(101px,calc(env(safe-area-inset-top) + 89px));right:12px;padding:3px;border:1px solid #355473;border-radius:11px;background:#061626cc;backdrop-filter:blur(8px)}.control-mode button{border:0;border-radius:8px;padding:7px 10px}.control-mode button.active{background:#176f83;box-shadow:0 0 0 1px #61e0e7}
+.door-card{left:12px;right:12px;top:max(116px,calc(env(safe-area-inset-top) + 104px));justify-content:space-between;box-shadow:0 10px 26px #0005;backdrop-filter:blur(9px)}.door-card button{border:0;min-width:62px;font-weight:700}
+.panel{left:12px;bottom:max(12px,env(safe-area-inset-bottom));right:12px;max-width:none;padding:5px 7px;border:1px solid #345371;border-radius:14px;background:#061626d9;box-shadow:0 10px 30px #0006;backdrop-filter:blur(10px);gap:5px}
+.pill{padding:7px 9px;background:#0a2035e8;border-color:#345774;font-size:10px}.pill b{color:#a4eef5}
+.controls{right:12px;bottom:max(72px,calc(env(safe-area-inset-bottom) + 58px));grid-template-columns:repeat(3,58px);grid-template-rows:repeat(3,52px);gap:7px}.controls button{border-color:#497093;border-radius:12px;background:#071a2de8;font-size:21px;box-shadow:0 8px 18px #0005}.controls button:active{background:#176f83;border-color:#72e7ed}
+.look{left:28%;right:0;top:22%;bottom:22%}.body-stick .look{left:48%;top:19%;bottom:18%}
+.stick-zone{width:48%;height:55%;bottom:0}.stick-base{width:116px;height:116px;background:#09233adb;border-color:#5792a9}.stick-knob{background:#47cbd7dd;border-color:#baf8fb}
+.consent-wrap{background:#020916dd;backdrop-filter:blur(5px)}.consent{width:min(440px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;padding:20px;border-color:#4a6a8b;background:linear-gradient(145deg,#112942,#0a1b2c);box-shadow:0 20px 80px #0009}.consent h1{font-size:19px}.consent button{min-height:44px;border-radius:10px}
+.loader{padding:11px 15px;border-color:#4e7699;background:#061626ed;box-shadow:0 12px 35px #0007}
+@media(max-width:520px){.brand{max-width:55vw}.brand small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.panel{gap:4px}.pill{padding:6px 7px}.controls{transform:scale(.92);transform-origin:bottom right}.small-actions button{font-size:10px}.control-mode button{font-size:10px}}
+@media(orientation:landscape) and (max-height:500px){.top{top:8px}.small-actions{top:51px}.control-mode{top:91px}.panel{bottom:8px}.controls{bottom:58px}.door-card{top:92px}}
+/* Keep door interaction separate from the mode switch, including landscape phones. */
+.door-card{top:max(148px,calc(env(safe-area-inset-top) + 136px));z-index:6}
+.door-card span{min-width:0;overflow-wrap:anywhere}.door-card button{flex-shrink:0;min-height:40px}
+@media(orientation:landscape) and (max-height:500px){.door-card{top:92px;right:auto;width:min(430px,calc(100vw - 230px))}}
+@media(pointer:coarse),(max-width:699px){.brand,.statusbox,.panel,.door-card,.control-mode,.consent-wrap{backdrop-filter:none;-webkit-backdrop-filter:none}}
+</style>
+</head>
+<body>
+<canvas id="view" aria-label="第一人称真实三维建筑视图"></canvas><div class="shade"></div>
+<div class="loader" id="loader">正在加载 3D 建筑…</div>
+<div class="top"><div class="brand">迷宫 · 真实 3D 参与端<small id="sceneLabel">正在读取场景</small></div><div id="status" class="statusbox">连接中…</div></div>
+<div class="small-actions"><button id="rejoinBtn" type="button">更换参与者</button><button id="exitButton" type="button">退出</button></div><div id="doorCard" class="door-card hidden"><span id="doorText">附近门</span><button id="doorBtn" type="button">开门</button></div>
+<div class="panel"><div class="pill">身份 <b id="playerLabel">—</b><span id="you" class="hidden">—</span></div><div class="pill">楼层 <b id="floorLabel">—</b></div><div class="pill">血量 <b id="healthLabel">100%</b></div><div class="pill">烟气 <b id="smokeLabel">0.00</b></div><div class="pill" id="phaseLabel">待命</div></div>
+<div class="look" id="lookArea" aria-label="拖动旋转视角"></div>
+<div class="control-mode" role="radiogroup" aria-label="操作方式"><button id="padMode" class="active" type="button" role="radio" aria-checked="true">方向键</button><button id="stickMode" type="button" role="radio" aria-checked="false">摇杆</button></div>
+<div class="controls" aria-label="移动控制"><button class="forward" data-move="forward" aria-label="前进">▲</button><button class="left" data-move="left" aria-label="向左平移">◀</button><button class="right" data-move="right" aria-label="向右平移">▶</button><button class="back" data-move="back" aria-label="后退">▼</button></div>
+<div class="stick-zone" id="stickZone" aria-label="移动摇杆"><div class="stick-base"><div class="stick-knob" id="stickKnob"></div></div><div class="stick-hint">拖动摇杆移动<br>右侧拖动旋转视角</div></div>
+<div id="consentLayer" class="consent-wrap hidden"><form class="consent" id="consentCard"><h1>参与须知</h1><p>你将在一个真实三维建筑场景中寻找出口。烟雾、火灾和人群是计算机模拟效果，不会造成真实伤害。系统会记录移动轨迹和时间，仅用于本实验的汇总统计。</p><label for="participantInput">参与者编号</label><input id="participantInput" type="text" autocomplete="off" maxlength="64" placeholder="例如 S001" required><label id="consentCheckLabel"><input id="consentCheck" type="checkbox"><span>我已阅读并同意参加本次实验，可随时退出</span></label><button id="consentBtn" type="submit" disabled>同意并进入</button><button id="switchParticipantBtn" type="button" style="margin-top:8px;background:#13263b">清除并更换参与者</button><div class="error" id="consentError"></div></form></div><div id="exitConfirmLayer" class="consent-wrap hidden"><div class="consent"><h1>确认退出</h1><p>退出后将停止记录本设备的移动输入，但本场实验仍由主机继续运行。</p><div style="display:flex;gap:8px"><button id="cancelExitBtn" type="button" style="flex:1">取消</button><button id="confirmExitBtn" type="button" style="flex:1;background:#773b46">确认退出</button></div></div></div><div id="exitCompleteLayer" class="consent-wrap hidden"><div class="consent"><h1>已退出</h1><p>你可以关闭页面，或重新输入参与者编号加入下一场。</p><button id="completeRejoinBtn" type="button">重新加入</button></div></div>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from '/static/vendor/GLTFLoader.js';
+import {MeshoptDecoder} from '/static/vendor/meshopt_decoder.module.js';
+import {SnapshotMotion,eyeHeight,agentVisualScale,disposeModel,ModelRequest} from '/static/utils/participant-motion.mjs?v=3';
+import {RenderBudget,cacheFloorHeights} from '/static/utils/render-performance.mjs?v=1';
+const $=s=>document.querySelector(s), canvas=$('#view');
+const phoneLike=matchMedia('(pointer:coarse)').matches||Math.min(innerWidth,innerHeight)<700;const renderScale=phoneLike?Math.min(.85,devicePixelRatio):Math.min(1.25,devicePixelRatio);const renderer=new THREE.WebGLRenderer({canvas,antialias:false,alpha:false,powerPreference:'high-performance',depth:true,stencil:false,preserveDrawingBuffer:false}); renderer.setPixelRatio(renderScale); renderer.shadowMap.enabled=false; renderer.outputColorSpace=THREE.SRGBColorSpace;
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0x07111d); scene.fog=new THREE.FogExp2(0x07111d,.018);
+scene.add(new THREE.HemisphereLight(0xd9efff,0x172438,1.8)); const sun=new THREE.DirectionalLight(0xffffff,2.0); sun.position.set(12,24,8); scene.add(sun);
+const camera=new THREE.PerspectiveCamera(72,1,.03,600); let root=null, state=null, me=null, ws=null, smokeMeshes=[], fireMeshes=[], otherAgents=new Map(); let smokePool=[], firePool=[], smokeMaterials=[], smokeGeometry=null, fireGeometry=null; // The calibrated school corridor runs along +X; looking +Z starts inside a wall.
+let yaw=Math.PI/2,pitch=-.08, modelReady=false;const modelRequest=new ModelRequest(),motion=new SnapshotMotion(),otherMotion=new Map();let meActor=null,modelCells=[],floorEyeHeights=new Map(),floorLayoutKey=null,cellViewKey=null,cellGap=3,modelVisibilityPasses=0,loadedModelUrl=null;
+const renderBudget=new RenderBudget({maxPixelRatio:renderScale,minPixelRatio:phoneLike?.6:.75});
+const input={x:0,z:0}; let moveKeys=new Set(),keyboardHeld=new Map(); let controlMode=localStorage.getItem('maze3d_controls')||'pad'; let stickPointer=null, stickOrigin=null; const qs=s=>document.querySelector(s); const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/Math.max(1,h);camera.updateProjectionMatrix()} addEventListener('resize',resize); resize();
+function setStatus(text,kind=''){const el=$('#status');if(el.textContent!==text)el.textContent=text;const c='statusbox '+kind;if(el.className!==c)el.className=c}
+function optimizeModel(obj){
+  const simplified=new Map();
+  const mobileMaterial=m=>{if(!m||!phoneLike||!m.isMeshStandardMaterial)return m;if(!simplified.has(m)){const next=new THREE.MeshLambertMaterial({color:m.color,map:m.map,transparent:m.transparent,opacity:m.opacity,alphaTest:m.alphaTest,side:m.side,vertexColors:m.vertexColors,emissive:m.emissive,emissiveMap:m.emissiveMap,flatShading:m.flatShading,alphaMap:m.alphaMap});simplified.set(m,next);}return simplified.get(m);};
+  obj.traverse(o=>{if(o.isLine||o.isLineSegments)o.visible=false;
+    if(o.isMesh){o.frustumCulled=true;o.castShadow=false;o.receiveShadow=false;o.material=Array.isArray(o.material)?o.material.map(mobileMaterial):mobileMaterial(o.material);}
+    // Never hide meshes based on vertex count: a wall/door can be just two triangles.
+    o.updateMatrix();o.matrixAutoUpdate=false;
+  });simplified.forEach((_,old)=>old.dispose());
+}
+function transformModel(g,t){const tr=t||{};g.scale.setScalar(Number(tr.scale_m_per_unit)||1);g.rotation.set(...(tr.rotation||[0,0,0]));g.position.set(...(tr.translation||[0,0,0]));g.updateMatrix();g.updateMatrixWorld(true);}
+function loadModel(sceneData){
+  // The balanced model preserves navigable surfaces and is useful on desktops too.
+  const modelUrl=sceneData.model_url_mobile||sceneData.model_url;
+  const key=JSON.stringify([sceneData.id,modelUrl,sceneData.transform]);
+  const generation=modelRequest.begin(key);if(generation===null)return;
+  modelReady=false;modelCells=[];cellViewKey=null;motion.reset();camReady=false;
+  if(root){scene.remove(root);disposeModel(root);root=null;}
+  const label=$('#loader');label.classList.remove('hidden');label.textContent='正在加载 3D 建筑…';
+  const loader=new GLTFLoader();loader.setMeshoptDecoder(MeshoptDecoder);
+  loader.load(modelUrl,async g=>{
+    if(generation!==modelRequest.generation){disposeModel(g.scene);return;}
+    root=g.scene;optimizeModel(root);transformModel(root,sceneData.transform);scene.add(root);
+    if(/_mobile_(chunked|balanced)\.glb/.test(modelUrl))root.traverse(o=>{if(o.isMesh){
+      if(!o.geometry.boundingBox)o.geometry.computeBoundingBox();
+      const b=o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld);
+      const key=(o.name+' '+(o.parent?.name||'')).match(/maze-cell-(-?\d+)_(-?\d+)_(-?\d+)-/);
+      modelCells.push({mesh:o,min:b.min.y,max:b.max.y,layer:key?Number(key[2]):null});
+    }});
+    // World transforms are fixed after calibration; only visibility changes later.
+    root.traverse(o=>{o.matrixWorldAutoUpdate=false;});
+    updateModelCells(true);label.textContent='正在准备建筑画面…';
+    try{await renderer.compileAsync(scene,camera);}catch(err){console.warn('建筑预热未完成',err);}
+    if(!modelRequest.finish(generation,true))return;
+    modelReady=true;loadedModelUrl=modelUrl;renderBudget.reset(performance.now());label.classList.add('hidden');if(!ws)setStatus('3D 场景已加载','ok');
+  },xhr=>{
+    if(generation!==modelRequest.generation)return;
+    // Content-Length may describe gzip bytes, not the decoded GLB. Never show >100%.
+    label.textContent=xhr.total&&xhr.loaded<=xhr.total?
+      '正在加载 3D 建筑 '+Math.min(100,Math.round(xhr.loaded/xhr.total*100))+'%':
+      '正在读取 / 解码建筑 · '+(xhr.loaded/1048576).toFixed(1)+' MB';
+  },err=>{if(!modelRequest.finish(generation,false))return;console.error(err);label.textContent='模型加载失败，请刷新重试';setStatus('模型加载失败','err');});
+}
+function updateModelCells(force=false){
+  const floors=state?.scene?.floors||[],tr=state?.scene?.transform||{};
+  const layout=JSON.stringify([floors.map(f=>[f.id,f.elevation_m]),tr]);
+  if(layout!==floorLayoutKey){
+    floorLayoutKey=layout;floorEyeHeights=cacheFloorHeights(floors,eyeHeight);
+    const heights=floors.map(f=>f.elevation_m).sort((a,b)=>a-b);
+    cellGap=heights.length>1?Math.max(.3,Math.min(...heights.slice(1).map((h,i)=>h-heights[i]))):3;
+    cellViewKey=null;
+  }
+  if(!modelCells.length)return;
+  const y=meActor?.position?.y??floors[0]?.elevation_m??0,connector=Boolean(meActor?.connector);
+  const layer=Math.floor((y-(tr.translation?.[1]||0))/(tr.scale_m_per_unit||1)/120+1e-4);
+  const viewKey=[y,layer,connector,floorLayoutKey].join('|');
+  if(!force&&viewKey===cellViewKey)return;
+  cellViewKey=viewKey;modelVisibilityPasses++;
+  const below=connector?cellGap*1.2:.2,above=connector?cellGap*2:cellGap*1.1;
+  for(const c of modelCells){const overlaps=c.max>=y-below&&c.min<=y+above;
+    c.mesh.visible=overlaps&&(connector||c.layer===null||c.layer===layer||c.max-c.min>cellGap*1.05||c.max-c.min<.16);
+  }
+}
+function ensureEffectPools(){if(smokePool.length)return;smokeGeometry=new THREE.SphereGeometry(1,12,8);fireGeometry=new THREE.ConeGeometry(.35,.9,10);smokeMaterials=[.10,.15,.20,.27].map(opacity=>new THREE.MeshBasicMaterial({color:0x9aa6b5,transparent:true,opacity,depthWrite:false}));for(let i=0;i<64;i++){const mesh=new THREE.Mesh(smokeGeometry,smokeMaterials[0]);mesh.visible=false;scene.add(mesh);smokePool.push(mesh)}const fireMaterial=new THREE.MeshBasicMaterial({color:0xff6a2d,transparent:true,opacity:.9});for(let i=0;i<16;i++){const mesh=new THREE.Mesh(fireGeometry,fireMaterial);mesh.visible=false;scene.add(mesh);firePool.push(mesh)}}
+function drawEffects(){ensureEffectPools();for(const mesh of smokePool)mesh.visible=false;for(const mesh of firePool)mesh.visible=false;const smoke=[...(state?.smoke||[])].sort((a,b)=>Number(b.value||0)-Number(a.value||0)).slice(0,smokePool.length);smoke.forEach((item,index)=>{const value=Math.max(0,Math.min(1,Number(item.value)||0)),p=item.position||[0,0,0],mesh=smokePool[index];mesh.position.set(p[0],p[1]+1.1,p[2]);const tier=Math.min(smokeMaterials.length-1,Math.floor(value*smokeMaterials.length));mesh.material=smokeMaterials[tier];mesh.scale.setScalar(.65+value*2.0);mesh.scale.y*=1.2;mesh.visible=value>0.001});(state?.fire||[]).slice(0,firePool.length).forEach((item,index)=>{const p=item.position||[0,0,0],mesh=firePool[index];mesh.position.set(p[0],p[1]+.55,p[2]);mesh.visible=true})}
+function makeMarker(a){const g=new THREE.Group();const c=new THREE.Color(a.human?'#39d6ff':a.color||'#8da6c6');const body=new THREE.Mesh(new THREE.CapsuleGeometry(.22,.95,3,6),new THREE.MeshBasicMaterial({color:c}));body.position.y=.695;g.add(body);const head=new THREE.Mesh(new THREE.SphereGeometry(.16,8,6),body.material);head.position.y=1.55;g.add(head);const ring=new THREE.Mesh(new THREE.RingGeometry(.18,.23,16),new THREE.MeshBasicMaterial({color:c,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));ring.rotation.x=-Math.PI/2;g.add(ring);scene.add(g);return g}
+function updateAgents(){const seen=new Set();for(const a of state?.agents||[]){if(a.pid===me?.pid)continue;seen.add(a.pid);let g=otherAgents.get(a.pid);if(!g){g=makeMarker(a);otherAgents.set(a.pid,g)}if(!otherMotion.has(a.pid))g.position.set(a.position.x,a.position.y,a.position.z);g.visible=!a.escaped&&!a.failed;const visualScale=agentVisualScale(state?.scene?.floors,a.floor,1.71);if(g.userData.visualScale!==visualScale){g.userData.visualScale=visualScale;g.scale.setScalar(visualScale);g.children[2].scale.setScalar(1/visualScale)}g.userData.agent=a}for(const [pid,g] of otherAgents){if(!seen.has(pid)){scene.remove(g);disposeModel(g);otherAgents.delete(pid);otherMotion.delete(pid)}}}
+function updateDoorUI(){const card=$('#doorCard'),btn=$('#doorBtn'),text=$('#doorText');const a=state?.agents?.find(x=>x.pid===me?.pid),d=a?.nearby_doors?.[0];if(!d){card.classList.add('hidden');return}card.classList.remove('hidden');card.classList.toggle('bad',!d.can_open);text.textContent=`${d.name||d.id} · ${d.state}`;btn.disabled=state?.phase!=='running'||!d.can_open||d.state==='opening'||d.state==='open';btn.textContent=state?.phase!=='running'?'等待主机开始':d.state==='open'?'已打开':d.state==='opening'?'开门中…':d.can_open?'开门':'不可通行';}
+function requestDoor(){const a=state?.agents?.find(x=>x.pid===me?.pid),d=a?.nearby_doors?.[0];if(ws&&ws.readyState===WebSocket.OPEN&&d?.can_open)ws.send(JSON.stringify({type:'door',door_id:d.id}))}
+$('#doorBtn').onclick=requestDoor;
+let lastEffectsAt=0,lastAgentsAt=0;function updateUI(){if(!state)return;if(ws?.readyState===WebSocket.OPEN)setStatus(!modelReady?'建筑加载中，暂不可移动':state.phase==='running'?'疏散进行中':state.phase==='paused'?'实验已暂停':state.phase==='ended'?'本场结束，等待新场次':'已连接，等待主机开始','ok');me=state.agents?.find(a=>a.pid===me?.pid)||me;const a=state.agents?.find(x=>x.pid===me?.pid);if(a){$('#floorLabel').textContent=a.floor;$('#healthLabel').textContent=Math.round(a.health*100)+'%';$('#smokeLabel').textContent=Number(a.smoke||0).toFixed(2);if(a.connector)$('#phaseLabel').textContent='正在通过楼梯';else if(a.state==='queued-stairs')$('#phaseLabel').textContent='楼梯暂满，请等待通行';else if(a.blocked_reason&&state.phase==='running')$('#phaseLabel').textContent=a.blocked_reason.startsWith('door-')?'门未打开，请等待或点击开门':a.blocked_reason==='outside-navigation'?'当前位置未校准，请联系主机':'到达墙体或标注边界，请转向';else $('#phaseLabel').textContent=state.phase==='running'?'疏散中':state.phase==='paused'?'已暂停':state.phase==='ended'?'本场已结束':'待命';}$('#playerLabel').textContent=me?.name||'—';$('#you').textContent=me?.pid||'—';$('#sceneLabel').textContent=`${state.scene?.name||'3D 场景'} · ${state.scene?.navigation_review?.status==='needs-review'?'导航待复核 · 仅演示':state.scale_status==='verified'?'正式尺度':'临时比例演示'}`;const now=performance.now();if(now-lastEffectsAt>100){lastEffectsAt=now;drawEffects()}if(now-lastAgentsAt>50){lastAgentsAt=now;updateAgents()};updateDoorUI()}
+let uiDirty=false,lastPacketAt=0,networkStale=false;
+function applyState(next){
+  if(!next?.agents)return;
+  if(!next.scene&&state?.scene&&next.scene_id===state.scene_id)next={...next,scene:state.scene};
+  const changed=state&&(next.round_revision!==state.round_revision||next.scene_id!==state.scene_id);
+  if(changed){releaseControls();motion.reset();camReady=false;lastEffectsAt=lastAgentsAt=0;}
+  state=next;if(next.you)me=next.you;
+  meActor=next.agents.find(a=>a.pid===me?.pid)||null;
+  if(meActor)motion.push(meActor,performance.now(),Boolean(changed)||next.phase!=='running');
+  const seen=new Set();for(const a of next.agents){if(a.pid===me?.pid)continue;seen.add(a.pid);let m=otherMotion.get(a.pid);if(!m){m=new SnapshotMotion();otherMotion.set(a.pid,m);}m.push(a,performance.now(),Boolean(changed)||next.phase!=='running');}for(const pid of otherMotion.keys())if(!seen.has(pid))otherMotion.delete(pid);
+  lastPacketAt=performance.now();networkStale=false;uiDirty=true;updateModelCells();
+  if(next.scene)loadModel(next.scene);
+}
+function sendInput(){if(!ws||ws.readyState!==WebSocket.OPEN||ws.bufferedAmount>8192)return;let x=0,z=0;if(controlMode==='stick'){x=input.z*Math.sin(yaw)+input.x*Math.sin(yaw+Math.PI/2);z=input.z*Math.cos(yaw)+input.x*Math.cos(yaw+Math.PI/2)}if(isMoving('forward')){x+=Math.sin(yaw);z+=Math.cos(yaw)}if(isMoving('back')){x-=Math.sin(yaw);z-=Math.cos(yaw)}if(isMoving('left')){x+=Math.sin(yaw-Math.PI/2);z+=Math.cos(yaw-Math.PI/2)}if(isMoving('right')){x+=Math.sin(yaw+Math.PI/2);z+=Math.cos(yaw+Math.PI/2)}const len=Math.hypot(x,z);if(len>1){x/=len;z/=len}if(document.hidden||!modelReady||state?.phase!=='running'||meActor?.escaped||meActor?.failed){x=0;z=0;}ws.send(JSON.stringify({type:'input',x,z}))}
+setInterval(sendInput,50);
+function connect(participant){if(ws){const old=ws;ws=null;old.close();}releaseControls();const pid=localStorage.getItem('maze_pid')||'p'+Math.random().toString(36).slice(2,9);localStorage.setItem('maze_pid',pid);localStorage.setItem('maze_consent','1');const name='玩家'+pid.slice(-3);const proto=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${proto}://${location.host}/ws/player-v2?pid=${encodeURIComponent(pid)}&name=${encodeURIComponent(name)}&participant=${encodeURIComponent(participant)}&consent=true&compact=true`);const socket=ws;ws.onopen=()=>{if(ws===socket)setStatus('已连接，等待主机开始','ok')};ws.onmessage=e=>{if(ws!==socket)return;try{applyState(JSON.parse(e.data))}catch(err){console.error(err)}};ws.onclose=e=>{if(ws!==socket)return;releaseControls();if(e.code===4001)setStatus('另一页面已接管此参与者','err');else if(e.code===4006)setStatus('本场已结束，请等待主机开始新场','err');else if(e.code===4004||e.code===4005)setStatus('需要完成参与确认','err');else setStatus('连接断开，可刷新重试','err')};}
+function showConsent(){releaseControls(); $('#consentLayer').classList.remove('hidden'); $('#exitCompleteLayer').classList.add('hidden'); $('#consentCheck').checked=false; $('#consentBtn').disabled=true; $('#consentError').textContent=''; const old=localStorage.getItem('maze_participant'); if(old)$('#participantInput').value=old }
+$('#consentCheck').onchange=e=>$('#consentBtn').disabled=!e.target.checked||!$('#participantInput').value.trim();$('#participantInput').oninput=e=>$('#consentBtn').disabled=!e.target.value.trim()||!$('#consentCheck').checked;
+$('#consentCard').onsubmit=e=>{e.preventDefault();const id=$('#participantInput').value.trim();if(!id)return;localStorage.setItem('maze_participant',id);$('#consentLayer').classList.add('hidden');connect(id)};
+$('#switchParticipantBtn').onclick=()=>{if(ws){const old=ws;ws=null;old.close();}localStorage.removeItem('maze_participant');localStorage.removeItem('maze_consent');$('#participantInput').value='';showConsent()};
+$('#rejoinBtn').onclick=()=>{if(ws)ws.close();showConsent()};
+$('#exitButton').onclick=()=>{releaseControls();$('#exitConfirmLayer').classList.remove('hidden');$('#confirmExitBtn').focus()};
+$('#cancelExitBtn').onclick=()=>{$('#exitConfirmLayer').classList.add('hidden');$('#exitButton').focus()};
+$('#confirmExitBtn').onclick=()=>{if(ws)ws.close();localStorage.removeItem('maze_consent');$('#exitConfirmLayer').classList.add('hidden');$('#exitCompleteLayer').classList.remove('hidden');setStatus('已退出')};$('#completeRejoinBtn').onclick=showConsent;
+function applyControlMode(){const stick=controlMode==='stick';document.body.classList.toggle('body-stick',stick);for(const [id,active] of [['padMode',!stick],['stickMode',stick]]){const b=$('#'+id);b.classList.toggle('active',active);b.setAttribute('aria-checked',String(active))}if(!stick){input.x=0;input.z=0;resetStick()}}
+function resetStick(){stickPointer=null;stickOrigin=null;input.x=0;input.z=0;const knob=$('#stickKnob');if(knob)knob.style.transform='translate(-50%,-50%)'}
+function setControlMode(mode){releaseControls();controlMode=mode;localStorage.setItem('maze3d_controls',mode);applyControlMode()}
+$('#padMode').onclick=()=>setControlMode('pad');$('#stickMode').onclick=()=>setControlMode('stick');
+for(const b of document.querySelectorAll('[data-move]')){const k=b.dataset.move;const down=e=>{e.preventDefault();moveKeys.add(k);b.setPointerCapture?.(e.pointerId);sendInput()};const up=e=>{e.preventDefault();moveKeys.delete(k);sendInput()};b.addEventListener('pointerdown',down);b.addEventListener('pointerup',up);b.addEventListener('pointercancel',up);b.addEventListener('lostpointercapture',up)}
+const keyboardMoves=new Map([['ArrowUp','forward'],['KeyW','forward'],['ArrowDown','back'],['KeyS','back'],['ArrowLeft','left'],['KeyA','left'],['ArrowRight','right'],['KeyD','right']]);
+function keyboardMove(e){return keyboardMoves.get(e.code)||keyboardMoves.get(e.key)||keyboardMoves.get('Key'+String(e.key).toUpperCase())}
+function isMoving(move){return moveKeys.has(move)||[...keyboardHeld.values()].includes(move)}
+function isTextEntry(target){const el=target instanceof Element?target:null;return Boolean(el?.closest('input,textarea,select,[contenteditable=true]'))}
+function onKeyboardDown(e){if(isTextEntry(e.target))return;const move=keyboardMove(e);if(!move)return;e.preventDefault();const key=e.code||e.key;if(!keyboardHeld.has(key)){keyboardHeld.set(key,move);sendInput()}}
+function onKeyboardUp(e){const move=keyboardMove(e);if(!move)return;if(!isTextEntry(e.target))e.preventDefault();keyboardHeld.delete(e.code||e.key);sendInput()}
+addEventListener('keydown',onKeyboardDown,{passive:false});addEventListener('keyup',onKeyboardUp,{passive:false});
+function stickPoint(e){const r=$('#stickZone').getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top}}
+function updateStick(clientX,clientY){if(!stickOrigin)return;const p=stickPoint({clientX,clientY}), dx=p.x-stickOrigin.x,dy=p.y-stickOrigin.y, radius=50, mag=Math.hypot(dx,dy);const scale=mag>radius?radius/mag:1;const sx=dx*scale,sy=dy*scale;const dead=.12*radius;const normalized=Math.hypot(sx,sy)<=dead?0:(Math.hypot(sx,sy)-dead)/(radius-dead);const dir=Math.hypot(sx,sy)?1/Math.hypot(sx,sy):0;input.x=sx*dir*normalized;input.z=-sy*dir*normalized;$('#stickKnob').style.transform=`translate(calc(-50% + ${sx}px), calc(-50% + ${sy}px))`}
+$('#stickZone').addEventListener('pointerdown',e=>{if(controlMode!=='stick')return;e.preventDefault();stickPointer=e.pointerId;const r=$('#stickZone').getBoundingClientRect();stickOrigin={x:e.clientX-r.left,y:e.clientY-r.top};$('#stickZone').setPointerCapture(e.pointerId);updateStick(e.clientX,e.clientY)});$('#stickZone').addEventListener('pointermove',e=>{if(e.pointerId===stickPointer)updateStick(e.clientX,e.clientY)});$('#stickZone').addEventListener('pointerup',e=>{if(e.pointerId===stickPointer){resetStick();sendInput()}});$('#stickZone').addEventListener('pointercancel',e=>{if(e.pointerId===stickPointer){resetStick();sendInput()}});
+let look=false,lx=0,ly=0;$('#lookArea').addEventListener('pointerdown',e=>{look=true;lx=e.clientX;ly=e.clientY;$('#lookArea').setPointerCapture(e.pointerId)});$('#lookArea').addEventListener('pointermove',e=>{if(!look)return;yaw-=(e.clientX-lx)*.008;pitch=clamp(pitch-(e.clientY-ly)*.006,-.7,.55);lx=e.clientX;ly=e.clientY});$('#lookArea').addEventListener('pointerup',()=>look=false);$('#lookArea').addEventListener('pointercancel',()=>look=false);applyControlMode();
+const camPos=new THREE.Vector3(),camLook=new THREE.Vector3();let camReady=false,lastFrame=0,lastRender=0,lastUI=0;
+let fps=0,totalRenderedFrames=0;
+function releaseControls(){moveKeys.clear();keyboardHeld.clear();resetStick();look=false;sendInput();}
+addEventListener('blur',releaseControls);
+document.addEventListener('visibilitychange',()=>{releaseControls();lastFrame=0;lastRender=0;});
+function frame(now=performance.now()){
+  requestAnimationFrame(frame);if(document.hidden){lastRender=now;return;}
+  const due=now-lastRender;if(due<renderBudget.periodMs-.5)return;
+  lastRender=due>renderBudget.periodMs*2?now:lastRender+renderBudget.periodMs;lastFrame=now;
+  if(uiDirty&&now-lastUI>80){lastUI=now;uiDirty=false;updateUI();}
+  if(meActor&&motion.sample(now,camPos)){
+    camPos.y+=floorEyeHeights.get(meActor.floor)??eyeHeight(state?.scene?.floors,meActor.floor);
+    camera.position.copy(camPos);camReady=true;
+    camLook.set(camPos.x+Math.sin(yaw)*Math.cos(pitch),camPos.y+Math.sin(pitch),camPos.z+Math.cos(yaw)*Math.cos(pitch));
+    camera.lookAt(camLook);
+  }
+  if(ws?.readyState===WebSocket.OPEN&&lastPacketAt&&now-lastPacketAt>1500&&!networkStale){networkStale=true;releaseControls();setStatus('同步延迟，已停止；连接恢复后请重新操作','err');}
+  if(!modelReady)return;
+  for(const [pid,g] of otherAgents)otherMotion.get(pid)?.sample(now,g.position);
+  renderer.render(scene,camera);totalRenderedFrames++;
+  if(renderBudget.record(now)){renderer.setPixelRatio(renderBudget.pixelRatio);resize();}
+  fps=renderBudget.fps;
+}
+window.play3d={debug:()=>({modelReady,modelPending:modelRequest.pending,modelLoads:modelRequest.generation,pid:me?.pid,
+  authoritativePosition:meActor?.position,cameraPosition:camera.position.toArray(),fps,drawCalls:renderer.info.render.calls,
+  triangles:renderer.info.render.triangles,renderCells:modelCells.length,pixelRatio:renderer.getPixelRatio(),roundRevision:state?.round_revision,
+  packetAgeMs:performance.now()-lastPacketAt,blockedReason:meActor?.blocked_reason,
+  targetFps:renderBudget.targetFps,totalRenderedFrames,modelVisibilityPasses,loadedModelUrl,interpolationDelayMs:motion.delayMs,
+  phase:state?.phase,sceneStairs:state?.scene?.stairs?.length,sceneExits:state?.scene?.exits?.length})};
+window.initialSceneState.then(s=>{if(!state)applyState(s)}).catch(()=>setStatus('无法读取 3D 场景','err'));const saved=localStorage.getItem('maze_participant');if(saved){$('#participantInput').value=saved}showConsent();frame();
+</script>
+</body></html>

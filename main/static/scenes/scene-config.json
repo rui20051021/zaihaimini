@@ -1,0 +1,42 @@
+{
+  "active": "school",
+  "scenes": [
+    {
+      "id": "school",
+      "name": "Uncle Mugen's School Building",
+      "description": "Sketchfab school building visual scene",
+      "models": [
+        {
+          "file": "uncle_mugens_school_building_web.glb",
+          "meshopt": true,
+          "preferred": true
+        },
+        {
+          "file": "uncle_mugens_school_building_meshopt.glb",
+          "meshopt": true
+        },
+        {
+          "file": "uncle_mugens_school_building_opt.glb",
+          "meshopt": false
+        },
+        {
+          "file": "uncle_mugens_school_building.glb",
+          "meshopt": false
+        }
+      ],
+      "placement": {
+        "fit": 0.92,
+        "rotationY": 0,
+        "centerX": 0.5,
+        "centerZ": 0.5,
+        "floor": "min",
+        "simulationArea": {
+          "minX": 0,
+          "minZ": 0,
+          "maxX": 1,
+          "maxZ": 1
+        }
+      }
+    }
+  ]
+}

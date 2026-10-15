@@ -1,0 +1,10 @@
+School building model
+=====================
+
+Model: Uncle Mugen's School Building
+Author: Ford mondeo (tnikita)
+Source: Sketchfab
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+The model is used as a visual scene in this project. The author must be
+credited in any redistribution or public use of the model.

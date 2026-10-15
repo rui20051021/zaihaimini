@@ -4,11 +4,58 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>迷宫 · 主机大屏</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "/static/vendor/three.module.js"
+  }
+}
+</script>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html, body { height:100%; background:#070b14; color:#e8eefc;
     font-family:system-ui,"Microsoft YaHei",sans-serif; overflow:hidden; }
   #app { display:flex; height:100%; min-height:0; }
+  #adminLogin {
+    position:fixed; inset:0; z-index:1000; display:grid; place-items:center;
+    padding:20px; background:rgba(4,8,16,.94); backdrop-filter:blur(8px);
+  }
+  #adminLogin[hidden] { display:none; }
+  #adminLogin form {
+    width:min(100%, 380px); padding:22px; border:1px solid #354563;
+    border-radius:8px; background:#111a2b; color:#e8eefc;
+  }
+  #adminLogin h2 { margin-bottom:8px; }
+  #adminLogin p { margin-bottom:16px; color:#a8b8d8; font-size:13px; line-height:1.5; }
+  #adminTokenInput {
+    width:100%; min-height:42px; padding:9px 11px; border:1px solid #435574;
+    border-radius:6px; background:#0a111f; color:#fff; font:inherit;
+  }
+  #adminLogin button {
+    width:100%; margin-top:12px; min-height:42px; border:0; border-radius:6px;
+    background:#3b82c4; color:#fff; font:600 14px system-ui,sans-serif;
+  }
+  #adminLoginError { min-height:20px; margin-top:8px; color:#ff9898; font-size:12px; }
+
+  #confirmLayer {
+    position:fixed; inset:0; z-index:1001; display:grid; place-items:center;
+    padding:20px; background:rgba(4,8,16,.9); backdrop-filter:blur(6px);
+  }
+  #confirmLayer[hidden] { display:none; }
+  #confirmLayer form {
+    width:min(100%, 420px); padding:22px; border:1px solid #354563;
+    border-radius:8px; background:#111a2b; color:#e8eefc;
+  }
+  #confirmLayer h2 { margin-bottom:8px; font-size:17px; }
+  #confirmLayer p { margin-bottom:14px; color:#a8b8d8; font-size:13px; line-height:1.6; }
+  #confirmLayer .confirm-actions { display:flex; flex-direction:column; gap:8px; }
+  #confirmLayer button {
+    width:100%; min-height:42px; border:0; border-radius:6px;
+    font:600 14px system-ui,sans-serif; cursor:pointer;
+  }
+  #confirmLayer button:disabled { opacity:.55; cursor:default; }
+  #confirmOk { background:#c4553b; color:#fff; }
+  #confirmCancel { background:#334768; color:#e8eefc; }
 
   #wrap { flex:1 1 auto; min-width:0; min-height:0; position:relative; overflow:hidden; }
   #cvs { position:absolute; inset:0; width:100%; height:100%; display:block; }
@@ -42,6 +89,10 @@
   #status.ok { color:#b8f0c8; }
   #status.ok::before { background:#3ee07a; box-shadow:0 0 8px #3ee07a; }
   #status.warn::before { background:#ff6b6b; box-shadow:0 0 8px #ff6b6b; }
+  #logoutButton {
+    width:auto; margin:0; padding:5px 9px; border-radius:6px;
+    color:#c5d1e8; font-size:11px;
+  }
 
   .qr-box { background:#fff; padding:12px; border-radius:12px; text-align:center; margin-bottom:8px; }
   .qr-box img { width:100%; height:auto; aspect-ratio:1/1; display:block; border-radius:4px; }
@@ -106,6 +157,62 @@
   .legend { position:absolute; right:16px; bottom:18px; z-index:3; display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px 10px; max-width:300px; color:#9eafd0; font-size:10px; padding:7px 9px; background:rgba(8,14,28,.72); border:1px solid rgba(120,150,210,.22); border-radius:8px; backdrop-filter:blur(8px); pointer-events:none; }
   .legend span { display:inline-flex; align-items:center; gap:4px; }
   .legend i { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  #viewTools {
+    position:absolute; right:14px; top:14px; z-index:4;
+    display:flex; gap:8px; align-items:center;
+  }
+  #viewTools button {
+    width:auto; margin:0; padding:7px 12px; border-radius:8px;
+    background:rgba(14,22,40,.86); border:1px solid #354563; color:#dbe6ff;
+    font-size:12px; font-weight:600; letter-spacing:.02em;
+    backdrop-filter:blur(8px); box-shadow:0 4px 16px rgba(0,0,0,.35);
+  }
+  #viewTools button:hover { background:rgba(38,54,96,.92); }
+  #viewTools button[aria-pressed="true"] { background:rgba(31,106,58,.9); border-color:#3a9a58; }
+  #viewTools button:disabled { opacity:.45; cursor:not-allowed; }
+  #view3dToggle[aria-pressed="true"] { background:rgba(36,80,127,.92); border-color:#3f7fc0; }
+
+  /* 三维总览：与二维画布同层叠放，切模式时只显示其中一个。 */
+  #cvs3d {
+    position:absolute; inset:0; width:100%; height:100%; display:none;
+    touch-action:none; cursor:grab;
+  }
+  #cvs3d:active { cursor:grabbing; }
+  /* 只有三维层真正画出第一帧后才接管画布，避免切换瞬间黑屏。 */
+  body.mode3d-live #cvs3d { display:block; }
+  body.mode3d-live #cvs { display:none; }
+  #view3dBar {
+    position:absolute; right:14px; top:58px; z-index:4;
+    display:flex; gap:8px; align-items:center;
+    padding:7px 9px; border-radius:8px;
+    background:rgba(14,22,40,.86); border:1px solid #354563;
+    backdrop-filter:blur(8px); box-shadow:0 4px 16px rgba(0,0,0,.35);
+  }
+  #view3dBar[hidden] { display:none; }
+  #view3dBar span { max-width:min(34vw,380px); overflow:hidden; text-overflow:ellipsis; font-size:11px; color:#9eb0d0; white-space:nowrap; }
+  #view3dBar button {
+    width:auto; margin:0; padding:5px 9px; border-radius:6px; font-size:11px;
+    background:#1a2340; border:1px solid #2a3a5c; color:#dbe6ff;
+  }
+  #view3dBar button:hover { background:#24325a; }
+  #view3dBar button[aria-pressed="true"] { background:#24507f; border-color:#3f7fc0; color:#fff; }
+  #view3dTip {
+    position:absolute; left:16px; bottom:92px; z-index:4;
+    font-size:11px; color:#7b8dad; pointer-events:none;
+    text-shadow:0 1px 6px #000;
+  }
+  #view3dTip[hidden] { display:none; }
+  @media (max-width:1100px) {
+    #view3dBar { left:12px; right:12px; justify-content:flex-end; flex-wrap:wrap; }
+    #view3dBar span { margin-right:auto; max-width:100%; }
+  }
+  /* 三维总览优先展示全部角色：只收起占宽的指标条，保留配色图例。 */
+  body.mode3d .risk-strip { display:none; }
+  body.mode3d .legend { right:14px; bottom:14px; max-width:360px; }
+  #observeHint { display:none; }
+  body.observe #panel { display:none; }
+  body.observe #observeHint { display:inline; }
+  body.observe #hud { left:18px; top:18px; }
   .assumption-note { margin:8px 0 14px; padding:9px 10px; border:1px solid #2a3a5c; border-left:3px solid #d6a84f; border-radius:7px; color:#8fa3c8; font-size:10px; line-height:1.5; background:#10182a; }
   .assumption-note b { color:#e4c36c; font-size:11px; }
   button:disabled { opacity:.5; cursor:wait; }
@@ -123,6 +230,7 @@
 <div id="app">
   <div id="wrap">
     <canvas id="cvs" aria-label="迷宫与疏散人员位置"></canvas>
+    <canvas id="cvs3d" aria-label="迷宫三维总览" hidden></canvas>
     <div id="hud">
       <div class="title">迷宫大屏</div>
       <div class="meta" id="mazeMeta">等待地图…</div>
@@ -134,6 +242,22 @@
       <div><b id="stPressure">0</b><span>最大接触压力</span></div>
       <div><b id="stFlow">0.00</b><span>出口 人/分钟</span></div>
     </div>
+    <div id="viewTools">
+      <button id="view3dToggle" type="button" aria-pressed="false" disabled
+              title="切换到三维总览，一屏观察所有角色（快捷键 3）">3D 总览</button>
+      <button id="observeToggle" type="button" aria-pressed="false"
+              title="收起控制台，让迷宫铺满整屏（快捷键 F，Esc 退出）">观察模式</button>
+    </div>
+    <div id="view3dBar" hidden>
+      <span id="v3dInfo">3D 总览</span>
+      <button id="v3dAuto" type="button" aria-pressed="false" title="镜头缓慢环绕">自动旋转</button>
+      <button id="v3dScene" type="button" aria-pressed="true" title="隐藏真实建筑模型">隐藏场景</button>
+      <button id="v3dWalls" type="button" aria-pressed="true" title="恢复模型实心显示">模型实心</button>
+      <button id="v3dGrid" type="button" aria-pressed="false" title="显示网格辅助层">显示网格</button>
+      <button id="v3dFollow" type="button" aria-pressed="false" title="镜头跟随真人玩家">跟随真人</button>
+      <button id="v3dReset" type="button" title="回到俯视全局">重置视角</button>
+    </div>
+    <div id="view3dTip" hidden>左键拖动旋转 · 滚轮缩放 · 右键拖动平移 · 点击角色查看详情 · 双击聚焦跟随</div>
     <div class="legend" aria-label="地图图例">
       <span><i style="background:#42d6ff"></i>真人</span>
       <span><i style="background:#8090a8"></i>NPC</span>
@@ -146,7 +270,10 @@
   <aside id="panel">
     <div class="head">
       <h2>控制台</h2>
-      <div id="status" role="status" aria-live="polite">连接中…</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div id="status" role="status" aria-live="polite">连接中…</div>
+        <button id="logoutButton" type="button" title="退出主机管理">退出</button>
+      </div>
     </div>
     <div class="winner-banner" id="winnerBanner"></div>
 
@@ -222,6 +349,7 @@
       <button onclick="evacPause()">暂停/继续</button>
       <button onclick="evacFire()">随机点火</button>
     </div>
+    <button onclick="evacEnd()">结束并归档本场</button>
     <div class="row">
       <button onclick="resetGame(true)">重置人群</button>
       <button onclick="resetGame(true, true)">重置并灭火</button>
@@ -314,7 +442,163 @@
     </div>
   </aside>
 </div>
+<div id="confirmLayer" hidden>
+  <form id="confirmForm">
+    <h2 id="confirmTitle">确认操作</h2>
+    <p id="confirmText"></p>
+    <div class="confirm-actions">
+      <button id="confirmOk" type="submit">确认</button>
+      <button id="confirmCancel" type="button">取消</button>
+    </div>
+  </form>
+</div>
+<div id="adminLogin" hidden>
+  <form id="adminLoginForm" autocomplete="off">
+    <h2>主机管理验证</h2>
+    <p>输入部署时设置的管理令牌。令牌只用于创建本浏览器的短期安全会话，不会保存在浏览器存储中。</p>
+    <label for="adminTokenInput">管理令牌</label>
+    <input id="adminTokenInput" type="password" autocomplete="current-password" required>
+    <button type="submit">验证并进入主机</button>
+    <div id="adminLoginError" role="alert" aria-live="polite"></div>
+  </form>
+</div>
 <script>
+function adminHeaders(headers = {}) { return { ...headers }; }
+function adminUrl(url) { return url; }
+const adminLogin = document.getElementById('adminLogin');
+const adminLoginForm = document.getElementById('adminLoginForm');
+const adminTokenInput = document.getElementById('adminTokenInput');
+const adminLoginError = document.getElementById('adminLoginError');
+let hostAuthenticated = false;
+let authPromptActive = false;
+
+function showAdminLogin(message = '') {
+  if (typeof closeConfirm === 'function' && confirmResolve) closeConfirm(false);
+  hostAuthenticated = false;
+  authPromptActive = true;
+  clearTimeout(reconnectTimer);
+  if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+    ws.close(1000, 'admin session expired');
+  }
+  document.getElementById('app').inert = true;
+  adminLogin.hidden = false;
+  adminLoginError.textContent = message;
+  setStatus('需要管理令牌', 'warn');
+  requestAnimationFrame(() => adminTokenInput.focus());
+}
+
+async function checkAdminSession() {
+  const response = await fetch('/api/admin/session', { cache: 'no-store' });
+  if (!response.ok) throw new Error('无法检查主机管理会话');
+  return response.json();
+}
+
+async function finishHostLogin() {
+  const state = await checkAdminSession();
+  const appRoot = document.getElementById('app');
+  if (!state.required || state.authenticated) {
+    hostAuthenticated = true;
+    authPromptActive = false;
+    appRoot.inert = false;
+    document.getElementById('logoutButton').hidden = !state.required;
+    adminLogin.hidden = true;
+    adminLoginError.textContent = '';
+    loadExperiment();
+    connect();
+    return true;
+  }
+  showAdminLogin();
+  return false;
+}
+
+document.getElementById('logoutButton').addEventListener('click', async () => {
+  if (!hostAuthenticated) return;
+  try {
+    const response = await fetch('/api/admin/session', { method: 'DELETE', cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    showAdminLogin('已退出管理，请重新验证后继续');
+  } catch (error) {
+    adminLogin.hidden = false;
+    adminLoginError.textContent = '退出失败，请检查连接后重试';
+  }
+});
+
+adminLoginForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const token = adminTokenInput.value;
+  adminLoginError.textContent = '';
+  const button = adminLoginForm.querySelector('button');
+  button.disabled = true;
+  try {
+    const response = await fetch('/api/admin/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error(response.status === 401 ? '管理令牌不正确' : '验证失败，请稍后重试');
+    adminTokenInput.value = '';
+    await finishHostLogin();
+  } catch (error) {
+    adminLoginError.textContent = error.message;
+    adminTokenInput.select();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+const confirmLayer = document.getElementById('confirmLayer');
+const confirmForm = document.getElementById('confirmForm');
+const confirmTitle = document.getElementById('confirmTitle');
+const confirmText = document.getElementById('confirmText');
+const confirmOk = document.getElementById('confirmOk');
+const confirmCancel = document.getElementById('confirmCancel');
+let confirmResolve = null;
+let confirmReturnFocus = null;
+let confirmPrevInert = false;
+
+function closeConfirm(result) {
+  if (!confirmResolve) return;
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  confirmLayer.hidden = true;
+  // Do not re-enable the console behind the admin re-auth prompt.
+  document.getElementById('app').inert = confirmPrevInert || !adminLogin.hidden;
+  const back = confirmReturnFocus;
+  confirmReturnFocus = null;
+  if (back && document.contains(back)) back.focus({ preventScroll: true });
+  resolve(result);
+}
+
+function askConfirm(options) {
+  if (confirmResolve) return Promise.resolve(false);
+  const appRoot = document.getElementById('app');
+  confirmPrevInert = appRoot.inert;
+  confirmReturnFocus = document.activeElement;
+  confirmTitle.textContent = options.title || '确认操作';
+  confirmText.textContent = options.text || '';
+  confirmOk.textContent = options.okText || '确认';
+  confirmCancel.textContent = options.cancelText || '取消';
+  confirmOk.style.background = options.danger === false ? '#3b82c4' : '#c4553b';
+  appRoot.inert = true;
+  confirmLayer.hidden = false;
+  requestAnimationFrame(() => confirmOk.focus({ preventScroll: true }));
+  return new Promise(resolve => { confirmResolve = resolve; });
+}
+
+confirmForm.addEventListener('submit', event => { event.preventDefault(); closeConfirm(true); });
+confirmCancel.addEventListener('click', () => closeConfirm(false));
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && confirmResolve) { event.preventDefault(); closeConfirm(false); return; }
+  if (event.key === 'Escape' && is3dOn()) { setMode3d(false); return; }
+  if (event.key === 'Escape' && isObserving()) { setObserve(false); return; }
+  const tag = (event.target && event.target.tagName) || '';
+  if (/^(INPUT|SELECT|TEXTAREA)$/.test(tag)) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === 'f' || event.key === 'F') setObserve(!isObserving());
+  if (event.key === '3') setMode3d(!is3dOn());
+});
+
 const cvs = document.getElementById('cvs');
 const ctx = cvs.getContext('2d');
 const wrap = document.getElementById('wrap');
@@ -377,19 +661,23 @@ fetch('/api/info').then(r => { if (!r.ok) throw new Error(); return r.json(); })
   .then(info => { playUrlEl.textContent = info.play_url; })
   .catch(() => { playUrlEl.textContent = '无法获取手机地址，请刷新重试'; });
 
-// 回填当前实验信息，刷新页面后不会丢失已保存的标签。
-fetch('/api/experiment').then(r => r.json()).then(data => {
-  const e = data.experiment || {};
-  expIdEl.value = e.experiment_id || '';
-  expConditionEl.value = e.condition || '';
-  expGroupEl.value = e.group || '';
-  expOperatorEl.value = e.operator || '';
-  expNotesEl.value = e.notes || '';
-  if (e.trial_seq) {
-    expStatusEl.textContent = '当前为第 ' + e.trial_seq + ' 场'
-      + (e.t0_iso ? ' · 开始于 ' + e.t0_iso : '');
-  }
-}).catch(() => {});
+// 回填实验信息只在管理会话通过后执行。
+function loadExperiment() {
+  fetch('/api/experiment', { headers: adminHeaders(), cache: 'no-store' })
+    .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(data => {
+      const e = data.experiment || {};
+      expIdEl.value = e.experiment_id || '';
+      expConditionEl.value = e.condition || '';
+      expGroupEl.value = e.group || '';
+      expOperatorEl.value = e.operator || '';
+      expNotesEl.value = e.notes || '';
+      if (e.trial_seq) {
+        expStatusEl.textContent = '当前为第 ' + e.trial_seq + ' 场'
+          + (e.t0_iso ? ' · 开始于 ' + e.t0_iso : '');
+      }
+    }).catch(() => {});
+}
 
 let CELL = 32, MW = 60, MH = 34;
 let WORLD_W = 1920, WORLD_H = 1088;
@@ -424,7 +712,7 @@ async function saveExperiment() {
   };
   const res = await fetch('/api/experiment', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: adminHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(payload),
   });
   if (!res.ok) { expStatusEl.textContent = '保存失败'; return; }
@@ -435,7 +723,7 @@ async function saveExperiment() {
 
 async function archiveTrial() {
   expStatusEl.textContent = '正在归档…';
-  const res = await fetch('/api/experiment/archive', { method: 'POST' });
+  const res = await fetch(adminUrl('/api/experiment/archive'), { method: 'POST', headers: adminHeaders() });
   if (!res.ok) { expStatusEl.textContent = '归档失败'; return; }
   const data = await res.json();
   expStatusEl.textContent = data.saved
@@ -451,6 +739,7 @@ let mazeCache = null;
 let trackCache = null;
 let trackCtx = null;
 let needDraw = true;
+let maze3dVersion = 0;
 let panelKey = '';
 let riskSmokeDose = 0, riskSmokePeak = 0, riskDensity = 0, riskPressure = 0, riskFlow = 0;
 
@@ -472,10 +761,31 @@ function resize() {
   needDraw = true;
 }
 
+// 顶部标题与底部指标条是覆盖在画布上的，若把迷宫按整个画布居中，
+// 观察模式下底部几行会被指标条挡住。这里按覆盖层的实际高度留出上下边距，
+// 让迷宫完整落在可见区域内。
+function overlayInsets() {
+  const dpr = window.devicePixelRatio || 1;
+  const wrapRect = wrap.getBoundingClientRect();
+  let top = 0, bottom = 0;
+  const hudRect = document.getElementById('hud').getBoundingClientRect();
+  if (hudRect.height > 0) top = Math.max(0, hudRect.bottom - wrapRect.top) + 8 * dpr;
+  const strip = document.querySelector('.risk-strip');
+  if (strip) {
+    const stripRect = strip.getBoundingClientRect();
+    if (stripRect.height > 0) bottom = Math.max(0, wrapRect.bottom - stripRect.top) + 8 * dpr;
+  }
+  const cap = cvs.height * 0.42;
+  return { top: Math.min(top, cap), bottom: Math.min(bottom, cap) };
+}
+
 function recomputeView() {
-  scale = Math.min(cvs.width / WORLD_W, cvs.height / WORLD_H) * 0.96;
+  const { top, bottom } = overlayInsets();
+  const availW = cvs.width;
+  const availH = Math.max(80, cvs.height - top - bottom);
+  scale = Math.min(availW / WORLD_W, availH / WORLD_H) * 0.98;
   ox = (cvs.width - WORLD_W * scale) / 2;
-  oy = (cvs.height - WORLD_H * scale) / 2;
+  oy = top + (availH - WORLD_H * scale) / 2;
 }
 
 function eachWall(cs, fn) {
@@ -599,6 +909,8 @@ function appendTrack(pid, x, y) {
 function draw() {
   requestAnimationFrame(draw);
   if (!needDraw) return;
+  // 三维总览接管画布时不要清掉 needDraw，切回二维后仍能补画一次。
+  if (is3dOn()) return;
   needDraw = false;
 
   ctx.fillStyle = '#070b14';
@@ -817,6 +1129,8 @@ function updatePanel() {
           selectedPid = p.pid;
           updateInspect();
           needDraw = true;
+          // 三维总览下点名单即把镜头对准该角色，方便对照大屏画面。
+          if (is3dOn() && typeof focus3d === 'function') focus3d(p.pid);
         });
         const dot = document.createElement('span');
         dot.className = 'dot'; dot.style.backgroundColor = p.color;
@@ -858,12 +1172,17 @@ function updatePanel() {
 let ws;
 let reconnectTimer = null, retryDelay = 1000;
 function connect() {
-  if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+  if (!hostAuthenticated || (ws && (ws.readyState === 0 || ws.readyState === 1))) return;
   clearTimeout(reconnectTimer);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws/host`);
   ws.onopen = () => { retryDelay = 1000; setStatus('已连接', 'ok'); };
-  ws.onclose = () => {
+  ws.onclose = event => {
+    if (event.code === 4003) {
+      showAdminLogin('管理会话已过期，请重新验证');
+      return;
+    }
+    if (!hostAuthenticated || authPromptActive) return;
     setStatus('重连中…', 'warn');
     reconnectTimer = setTimeout(connect, retryDelay + Math.random() * 300);
     retryDelay = Math.min(retryDelay * 2, 15000);
@@ -895,6 +1214,7 @@ function connect() {
       updatePanel();
       updateInspect();
       rebuildTrackCache();
+      maze3dVersion += 1;
       needDraw = true;
     } else if (msg.type === 'state') {
       applyEvac(msg);
@@ -925,12 +1245,16 @@ async function postAction(url, body) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const options = { method:'POST', signal:controller.signal };
+    const options = { method:'POST', signal:controller.signal, headers: adminHeaders() };
     if (body != null) {
-      options.headers = { 'Content-Type': 'application/json' };
+      options.headers = adminHeaders({ 'Content-Type': 'application/json' });
       options.body = body;
     }
     const response = await fetch(url, options);
+    if (response.status === 401 || response.status === 403) {
+      showAdminLogin('管理会话已过期，请重新验证');
+      throw new Error('管理会话已过期');
+    }
     if (!response.ok) throw new Error('HTTP ' + response.status);
     const result = await response.json();
     if (result.ok === false) throw new Error('此位置不能点火');
@@ -949,7 +1273,8 @@ async function postAction(url, body) {
     windXInput.disabled = false;
     windYInput.disabled = false;
     spawnInputs.forEach(el => { el.disabled = false; });
-    document.querySelectorAll('button').forEach(b => b.disabled = false);
+    document.querySelectorAll('button').forEach(b => { b.disabled = false; });
+    if (typeof sync3dToggleState === 'function') sync3dToggleState();
   }
 }
 
@@ -1003,6 +1328,10 @@ async function clearSpawnZone() {
 }
 
 async function resetGame(withPos, clearFire) {
+  const text = clearFire
+    ? '将把所有人送回起点区并熄灭全部火源。进行中的本场数据不受影响，但当前人群状态会立即清空。'
+    : '将把所有人送回起点区重新开始本轮。进行中的本场数据不受影响，但当前人群状态会立即清空。';
+  if (!await askConfirm({ title: clearFire ? '重置人群并灭火？' : '重置人群？', text, okText: clearFire ? '重置并灭火' : '重置人群' })) return;
   if (!await postAction('/api/reset?pos=' + (withPos ? 1 : 0) + '&fire=' + (clearFire ? 1 : 0))) return;
   tracks = {};
   rebuildTrackCache();
@@ -1014,6 +1343,14 @@ async function evacStart() {
 }
 async function evacPause() {
   await postAction('/api/evac/pause');
+}
+async function evacEnd() {
+  if (!await askConfirm({
+    title: '结束并归档本场？',
+    text: '将立即结束当前疏散，并把本场汇总 JSON 与轨迹 CSV 写入 data/。结束后手机端会停止接收操作，需要重新开始才能继续。',
+    okText: '结束并归档',
+  })) return;
+  await postAction('/api/evac/end');
 }
 async function evacFire() {
   await postAction('/api/evac/fire');
@@ -1085,6 +1422,11 @@ async function restartGame() {
     if (!Number.isInteger(seed) || seed < 1) return;
     url += '&seed=' + seed;
   }
+  if (!await askConfirm({
+    title: '应用设置并重开？',
+    text: '将按当前复杂度、视野、出口、风力与随机种子重建迷宫，并重置本场人群与轨迹。已经归档的数据不会丢失，但这些改动无法撤销。',
+    okText: '重建并重开',
+  })) return;
   setStatus('重建中…', '');
   seedDraft = false;
   await postAction(url);
@@ -1094,6 +1436,10 @@ document.getElementById('scenarioFile').addEventListener('change', async ev => {
   const file = ev.target.files && ev.target.files[0];
   ev.target.value = '';
   if (!file) return;
+  if (file.size > 1024 * 1024) {
+    setStatus('场景文件不能超过 1 MB', 'warn');
+    return;
+  }
   let data;
   try {
     data = JSON.parse(await file.text());
@@ -1102,7 +1448,7 @@ document.getElementById('scenarioFile').addEventListener('change', async ev => {
     return;
   }
   setStatus('加载场景中…', '');
-  const ok = await postAction('/api/scenario', JSON.stringify(data));
+  const ok = await postAction(adminUrl('/api/scenario'), JSON.stringify(data));
   if (ok) {
     tracks = {};
     selectedPid = null;
@@ -1111,8 +1457,1205 @@ document.getElementById('scenarioFile').addEventListener('change', async ev => {
   }
 });
 
-new ResizeObserver(resize).observe(wrap);
-connect();
+// 观察模式：收起控制台并尽量进入全屏，把画布留给迷宫本身；
+// 画布尺寸由 wrap 上的 ResizeObserver 驱动，隐藏面板后会自动重新铺满。
+const observeToggle = document.getElementById('observeToggle');
+let lastFullscreenToggle = 0;
+
+function isObserving() {
+  return document.body.classList.contains('observe');
+}
+
+function setObserve(on) {
+  const next = !!on;
+  if (next === isObserving()) return;
+  document.body.classList.toggle('observe', next);
+  observeToggle.setAttribute('aria-pressed', String(next));
+  observeToggle.textContent = next ? '退出观察模式' : '观察模式';
+  observeToggle.title = next
+    ? '恢复控制台（快捷键 Esc 或 F）'
+    : '收起控制台，让迷宫铺满整屏（快捷键 F，Esc 退出）';
+  lastFullscreenToggle = Date.now();
+  try {
+    if (next && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (!next && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  } catch (_) { /* 全屏可能被浏览器策略拒绝，观察模式本身仍然生效 */ }
+}
+
+observeToggle.addEventListener('click', () => setObserve(!isObserving()));
+document.addEventListener('fullscreenchange', () => {
+  // 用户用 F11 / 绿色按钮离开全屏时，同步退出观察模式，
+  // 但如果这次变化是我们自己触发的，就只同步按钮状态。
+  if (!document.fullscreenElement && isObserving() && Date.now() - lastFullscreenToggle > 400) {
+    setObserve(false);
+  }
+});
+
+// ---- 三维总览桥接 ----
+// 三维渲染写在文件末尾的 module 脚本里，但 module 作用域读不到本脚本的
+// let/const 变量（walls / players / EXITS 等），所以这里开一个只读窗口。
+const view3dToggle = document.getElementById('view3dToggle');
+const view3dBar = document.getElementById('view3dBar');
+const view3dTip = document.getElementById('view3dTip');
+const cvs3dEl = document.getElementById('cvs3d');
+const v3dInfoEl = document.getElementById('v3dInfo');
+let host3dFailed = false;
+let host3dReady = false;
+
+function is3dOn() { return document.body.classList.contains('mode3d'); }
+
+function setMode3d(on) {
+  // 引擎还没就绪时不进模式，避免留在一个没有画面的画布上。
+  const next = !!on && !host3dFailed && host3dReady;
+  if (next === is3dOn()) return;
+  document.body.classList.toggle('mode3d', next);
+  if (!next) document.body.classList.remove('mode3d-live');
+  view3dToggle.setAttribute('aria-pressed', String(next));
+  view3dToggle.textContent = next ? '返回二维' : '3D 总览';
+  view3dToggle.title = next
+    ? '回到二维顶视图（快捷键 3 或 Esc）'
+    : '切换到三维总览，一屏观察所有角色（快捷键 3）';
+  view3dBar.hidden = !next;
+  view3dTip.hidden = !next;
+  cvs3dEl.hidden = true;
+  if (!next) { document.body.classList.remove('mode3d-live'); needDraw = true; }
+  if (typeof window.host3dOnModeChange === 'function') window.host3dOnModeChange(next);
+}
+
+function sync3dToggleState() { view3dToggle.disabled = host3dFailed || !host3dReady; }
+view3dToggle.addEventListener('click', () => setMode3d(!is3dOn()));
+
+window.host3d = {
+  modeOn: is3dOn,
+  state() {
+    return {
+      CELL, MW, MH, WORLD_W, WORLD_H, walls, EXITS, players,
+      fireCells, smokeCells, selectedPid,
+      mazeVersion: maze3dVersion,
+      phase: evacPhase, elapsed: evacElapsed,
+      escaped: evacEscaped, failed: evacFailed, alive: evacAlive,
+      npcs: evacNpcs, humans: evacHumans,
+    };
+  },
+  select(pid) {
+    selectedPid = pid;
+    updateInspect();
+    needDraw = true;
+  },
+  setInfo(text) { if (v3dInfoEl.textContent !== text) v3dInfoEl.textContent = text; },
+  ready: () => host3dReady,
+  // 供自动化测试与排查使用：暴露三维层的渲染计数与视角状态。
+  debug: () => ({
+    ready: host3dReady,
+    failed: host3dFailed,
+    live: document.body.classList.contains('mode3d-live'),
+    on: is3dOn(),
+    mazeBuilt: !!mazeRoot3d,
+    npcs: npcMesh3d ? npcMesh3d.count : 0,
+    humans: humanBody3d ? humanBody3d.count : 0,
+    ghostWalls: ghostWalls3d,
+    sceneReady: sceneModelReady3d,
+    sceneFailed: sceneLoadFailed3d,
+    sceneVisible: sceneVisible3d,
+    gridVisible: gridVisible3d,
+    sceneModel: sceneModelName3d,
+    auto: auto3d,
+    follow: follow3d,
+    dist: Math.round(orbit3d.dist),
+    theta: Number(orbit3d.theta.toFixed(3)),
+    selected: selectedPid,
+  }),
+  setLive(flag) {
+    const live = !!flag && is3dOn();
+    document.body.classList.toggle('mode3d-live', live);
+    cvs3dEl.hidden = !live;
+  },
+  fail(message) {
+    host3dFailed = true;
+    sync3dToggleState();
+    if (is3dOn()) setMode3d(false);
+    setStatus(message, 'warn');
+  },
+};
+
+new ResizeObserver(() => { resize(); resize3d(); }).observe(wrap);
+const riskStripEl = document.querySelector('.risk-strip');
+if (riskStripEl) new ResizeObserver(() => { recomputeView(); needDraw = true; }).observe(riskStripEl);
+
+// ================= 三维总览 =================
+// 目标：一屏之内看清所有角色（NPC + 真人）的分布、聚集与疏散趋势。
+// three.js 用动态 import 延迟加载；即便加载失败，二维顶视图也保持可用。
+let T3 = null;                       // three 命名空间
+let tmpObj3d = null, tmpCol3d = null;
+let r3d = null, scene3d = null, cam3d = null;
+let mazeRoot3d = null, smokeMesh3d = null, fireMesh3d = null;
+let sceneRoot3d = null, sceneGround3d = null, sceneLoad3d = null;
+let sceneSourceSize3d = null;
+let sceneWorldBox3d = null;
+let scenePlacement3d = { fit: 0.92, rotationY: 0, centerX: 0.5, centerZ: 0.5 };
+let sceneSimulationArea3d = { minX: 0, minZ: 0, maxX: 1, maxZ: 1 };
+let sceneModelUrl3d = '', sceneModelName3d = '', sceneModelReady3d = false;
+let sceneVisible3d = true, gridVisible3d = false;
+let sceneLoadFailed3d = false;
+let npcMesh3d = null, humanBody3d = null, humanBeam3d = null;
+let npcPad3d = null, humanPad3d = null, selectRing3d = null;
+let wallMesh3d = null;
+let npcPids3d = [], humanPids3d = [];
+let mazeKey3d = '', smokeKey3d = '', fireKey3d = '';
+let smokeCap3d = 0, fireCap3d = 0;
+let raf3d = null, lastT3d = 0, lastRenderAt3d = 0, liveDone3d = false;
+let host3dPendingEnter = false;
+let hintShown3d = false;
+let sceneLoadRequested3d = false;
+
+const WALL_H3D = 26, WALL_T3D = 0.7;
+const CAP_R3D = 7.4, CAP_LEN3D = 17;         // 略放大，鸟瞰时人物不至于只有几个像素
+const PAD_R3D = CAP_R3D * 1.5;               // 人物脚下的地环半径
+const NPC_TOP3D = CAP_R3D * 2 + CAP_LEN3D;   // 胶囊顶面高度
+const HUMAN_R3D = CAP_R3D * 1.5, HUMAN_LEN3D = CAP_LEN3D * 1.35;
+const HUMAN_TOP3D = HUMAN_R3D * 2 + HUMAN_LEN3D;
+const orbit3d = { theta: 0.40, phi: 0.68, dist: 3000, min: 400, max: 9000 };
+let auto3d = false, follow3d = false;
+let v3dInfoAt = 0;
+
+// 摄像机球坐标 → 位置
+function place3dCamera() {
+  const t = orbit3d.target;
+  const sp = Math.sin(orbit3d.phi), cp = Math.cos(orbit3d.phi);
+  cam3d.position.set(
+    t.x + orbit3d.dist * sp * Math.sin(orbit3d.theta),
+    t.y + orbit3d.dist * cp,
+    t.z + orbit3d.dist * sp * Math.cos(orbit3d.theta)
+  );
+  cam3d.lookAt(t);
+}
+
+// 一屏容下整张地图所需的观察距离。
+// 早期版本按地图对角线半径估算，斜视时会白白浪费 30% 以上画面；
+// 这里改成把地图包围盒的 8 个角点逐个投影到当前视角，求刚好装下所有角点
+// 的最小距离，因此无论横屏、竖屏还是旋转到任意角度都能铺满可用区域。
+const FIT_CORNERS3D = () => [
+  ...(sceneWorldBox3d ? [
+    [sceneWorldBox3d.min.x, sceneWorldBox3d.min.y, sceneWorldBox3d.min.z],
+    [sceneWorldBox3d.max.x, sceneWorldBox3d.min.y, sceneWorldBox3d.min.z],
+    [sceneWorldBox3d.min.x, sceneWorldBox3d.min.y, sceneWorldBox3d.max.z],
+    [sceneWorldBox3d.max.x, sceneWorldBox3d.min.y, sceneWorldBox3d.max.z],
+    [sceneWorldBox3d.min.x, sceneWorldBox3d.max.y, sceneWorldBox3d.min.z],
+    [sceneWorldBox3d.max.x, sceneWorldBox3d.max.y, sceneWorldBox3d.min.z],
+    [sceneWorldBox3d.min.x, sceneWorldBox3d.max.y, sceneWorldBox3d.max.z],
+    [sceneWorldBox3d.max.x, sceneWorldBox3d.max.y, sceneWorldBox3d.max.z],
+  ] : [
+    [0, 0, 0], [WORLD_W, 0, 0], [0, 0, WORLD_H], [WORLD_W, 0, WORLD_H],
+    [0, WALL_H3D, 0], [WORLD_W, WALL_H3D, 0],
+    [0, WALL_H3D, WORLD_H], [WORLD_W, WALL_H3D, WORLD_H],
+  ]),
+];
+// 单个方位角下，刚好装下整张地图所需的距离。
+function fitDistAt3d(theta) {
+  const fov = cam3d ? cam3d.fov * Math.PI / 180 : Math.PI / 4;
+  const aspect = cam3d && cam3d.aspect > 0 ? cam3d.aspect : 1;
+  const tan = Math.tan(fov / 2);
+  // 与 place3dCamera 同一套球坐标：camera = target + dir * dist。
+  const sp = Math.sin(orbit3d.phi), cp = Math.cos(orbit3d.phi);
+  const dir = new T3.Vector3(sp * Math.sin(theta), cp, sp * Math.cos(theta));
+  const right = new T3.Vector3().crossVectors(new T3.Vector3(0, 1, 0), dir).normalize();
+  const up = new T3.Vector3().crossVectors(dir, right);
+  const cx = sceneWorldBox3d ? (sceneWorldBox3d.min.x + sceneWorldBox3d.max.x) / 2 : WORLD_W / 2;
+  const cz = sceneWorldBox3d ? (sceneWorldBox3d.min.z + sceneWorldBox3d.max.z) / 2 : WORLD_H / 2;
+  let need = 0;
+  // 逐点求 d >= |u·right| / (tan*aspect) + u·dir 与 d >= |u·up| / tan + u·dir。
+  for (const [x, y, z] of FIT_CORNERS3D()) {
+    const ux = x - cx, uy = y, uz = z - cz;
+    const along = ux * dir.x + uy * dir.y + uz * dir.z;
+    const rx = ux * right.x + uy * right.y + uz * right.z;
+    const ry = ux * up.x + uy * up.y + uz * up.z;
+    need = Math.max(need, Math.abs(rx) / (tan * aspect) + along, Math.abs(ry) / tan + along);
+  }
+  return Math.max(need * 1.06, 120);   // 6% 余量：铺满但不贴边裁切
+
+}
+// 当前方位角下“刚好铺满”的距离；自动旋转时由 update3dCamera 持续跟着走。
+function fitDist3d() {
+  return fitDistAt3d(Number.isFinite(orbit3d.theta) ? orbit3d.theta : 0);
+}
+
+function resetView3d() {
+  if (!T3) return;
+  const center = sceneWorldBox3d
+    ? sceneWorldBox3d.getCenter(new T3.Vector3())
+    : new T3.Vector3(WORLD_W / 2, 0, WORLD_H / 2);
+  center.y = 0;
+  orbit3d.target = center;
+  orbit3d.theta = 0.40;
+  orbit3d.phi = 0.68;
+  orbit3d.dist = fitDist3d();
+  orbit3d.min = Math.min(orbit3d.dist * 0.22, 400);
+  orbit3d.max = Math.max(orbit3d.dist * 1.6, 4200);
+  if (auto3d) orbit3d.theta = 0.40;
+  place3dCamera();
+}
+
+function resize3d() {
+  if (!r3d || !cam3d) return;
+  const w = Math.max(2, wrap.clientWidth);
+  const h = Math.max(2, wrap.clientHeight);
+  r3d.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  r3d.setSize(w, h, false);
+  cam3d.aspect = w / h;
+  cam3d.updateProjectionMatrix();
+  // 窗口尺寸变了就重新拟合，保证“一屏看全”在任何屏幕比例下都成立。
+  if (!follow3d) {
+    orbit3d.dist = fitDist3d();
+    orbit3d.min = Math.min(orbit3d.dist * 0.22, 400);
+    orbit3d.max = Math.max(orbit3d.dist * 1.6, 4200);
+  }
+}
+
+function disposeGroup3d(obj) {
+  if (!obj) return;
+  scene3d.remove(obj);
+  obj.traverse(child => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      const mats = Array.isArray(child.material) ? child.material : [child.material];
+      mats.forEach(m => m.dispose());
+    }
+    if (child.dispose) child.dispose();
+  });
+}
+
+// ================= 真实建筑场景 =================
+// 这里不把学校模型写死在渲染逻辑里。替换建筑时只需把 GLB 放进
+// main/static/scenes/，并修改 scene-config.json 的 active / models / placement。
+let GLTFLoader3d = null;
+let MeshoptDecoder3d = null;
+let meshoptPromise3d = null;
+
+async function ensureMeshopt3d() {
+  if (MeshoptDecoder3d) return MeshoptDecoder3d;
+  if (!meshoptPromise3d) {
+    meshoptPromise3d = import('/static/vendor/meshopt_decoder.module.js')
+      .then(module => {
+        MeshoptDecoder3d = module.MeshoptDecoder;
+        return MeshoptDecoder3d;
+      })
+      .catch(error => {
+        console.warn('主机端 meshopt 解码器不可用，将跳过压缩模型', error);
+        return null;
+      });
+  }
+  return meshoptPromise3d;
+}
+
+async function resolveSceneModel3d() {
+  const response = await fetch('/api/scene-models?legacy=1', { cache: 'no-store' });
+  if (!response.ok) throw new Error('场景清单 HTTP ' + response.status);
+  const manifest = await response.json();
+  const scenes = Array.isArray(manifest.scenes) ? manifest.scenes : [];
+  const active = manifest.active || (scenes[0] && scenes[0].id);
+  const scene = scenes.find(item => item.id === active) || scenes[0];
+  const models = scene && Array.isArray(scene.models) ? scene.models : [];
+  if (!scene || !models.length) throw new Error('场景清单中没有可用模型');
+  scenePlacement3d = { ...scenePlacement3d, ...(scene.placement || {}) };
+
+  // preferred 优先；压缩模型需要解码器，失败时自动尝试兼容回退。
+  const ordered = [...models].sort((a, b) => Number(!!b.preferred) - Number(!!a.preferred));
+  for (const model of ordered) {
+    if (!model.url) continue;
+    if (model.meshopt && !(await ensureMeshopt3d())) continue;
+    return model;
+  }
+  throw new Error('当前浏览器没有可解码的场景模型');
+}
+
+function setSceneMaterialOpacity3d(opacity) {
+  if (!sceneRoot3d) return;
+  sceneRoot3d.traverse(node => {
+    if (!node.isMesh || !node.material) return;
+    const materials = Array.isArray(node.material) ? node.material : [node.material];
+    materials.forEach(material => {
+      if (!Object.prototype.hasOwnProperty.call(material.userData, 'host3dBaseOpacity')) {
+        material.userData.host3dBaseOpacity = Number.isFinite(material.opacity) ? material.opacity : 1;
+      }
+      material.transparent = opacity < 0.99 || material.transparent;
+      material.opacity = material.userData.host3dBaseOpacity * opacity;
+      material.depthWrite = opacity >= 0.99;
+      material.needsUpdate = true;
+    });
+  });
+}
+
+function gridToScene3d(x, z) {
+  if (!sceneWorldBox3d) return { x, y: 0, z };
+  const u = WORLD_W > 0 ? Math.max(0, Math.min(1, x / WORLD_W)) : 0.5;
+  const v = WORLD_H > 0 ? Math.max(0, Math.min(1, z / WORLD_H)) : 0.5;
+  const modelWidth = sceneWorldBox3d.max.x - sceneWorldBox3d.min.x;
+  const modelDepth = sceneWorldBox3d.max.z - sceneWorldBox3d.min.z;
+  const minX = sceneWorldBox3d.min.x + modelWidth * sceneSimulationArea3d.minX;
+  const maxX = sceneWorldBox3d.min.x + modelWidth * sceneSimulationArea3d.maxX;
+  const minZ = sceneWorldBox3d.min.z + modelDepth * sceneSimulationArea3d.minZ;
+  const maxZ = sceneWorldBox3d.min.z + modelDepth * sceneSimulationArea3d.maxZ;
+  return {
+    x: minX + (maxX - minX) * u,
+    y: 0,
+    z: minZ + (maxZ - minZ) * v,
+  };
+}
+
+function alignGridToScene3d() {
+  if (!mazeRoot3d || !sceneWorldBox3d) return;
+  const modelWidth = sceneWorldBox3d.max.x - sceneWorldBox3d.min.x;
+  const modelDepth = sceneWorldBox3d.max.z - sceneWorldBox3d.min.z;
+  const minX = sceneWorldBox3d.min.x + modelWidth * sceneSimulationArea3d.minX;
+  const maxX = sceneWorldBox3d.min.x + modelWidth * sceneSimulationArea3d.maxX;
+  const minZ = sceneWorldBox3d.min.z + modelDepth * sceneSimulationArea3d.minZ;
+  const maxZ = sceneWorldBox3d.min.z + modelDepth * sceneSimulationArea3d.maxZ;
+  const width = Math.max(1, maxX - minX);
+  const depth = Math.max(1, maxZ - minZ);
+  mazeRoot3d.position.set(minX, 0, minZ);
+  mazeRoot3d.scale.set(width / Math.max(1, WORLD_W), 1, depth / Math.max(1, WORLD_H));
+  mazeRoot3d.updateMatrixWorld(true);
+}
+
+function buildSceneGround3d() {
+  if (!sceneWorldBox3d) return;
+  if (sceneGround3d) {
+    scene3d.remove(sceneGround3d);
+    sceneGround3d.geometry.dispose();
+    sceneGround3d.material.dispose();
+    sceneGround3d = null;
+  }
+  const a = sceneSimulationArea3d;
+  const modelWidth = sceneWorldBox3d.max.x - sceneWorldBox3d.min.x;
+  const modelDepth = sceneWorldBox3d.max.z - sceneWorldBox3d.min.z;
+  const width = Math.max(1, modelWidth * (a.maxX - a.minX));
+  const depth = Math.max(1, modelDepth * (a.maxZ - a.minZ));
+  const centerX = sceneWorldBox3d.min.x + modelWidth * (a.minX + a.maxX) / 2;
+  const centerZ = sceneWorldBox3d.min.z + modelDepth * (a.minZ + a.maxZ) / 2;
+  const ground = new T3.Mesh(
+    new T3.PlaneGeometry(width, depth),
+    new T3.MeshLambertMaterial({ color: 0x303b49, side: T3.DoubleSide }),
+  );
+  ground.name = 'simulation-ground';
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(centerX, sceneWorldBox3d.min.y - 0.35, centerZ);
+  ground.renderOrder = -1;
+  scene3d.add(ground);
+  sceneGround3d = ground;
+}
+
+function setSceneVisible3d(visible) {
+  sceneVisible3d = !!visible;
+  if (sceneRoot3d) sceneRoot3d.visible = sceneVisible3d;
+  const button = document.getElementById('v3dScene');
+  if (button) {
+    button.setAttribute('aria-pressed', String(sceneVisible3d));
+    button.textContent = sceneVisible3d ? '隐藏场景' : '显示场景';
+    button.title = sceneVisible3d ? '隐藏真实建筑模型' : '显示真实建筑模型';
+  }
+}
+
+function setGridVisible3d(visible) {
+  gridVisible3d = !!visible;
+  if (mazeRoot3d) mazeRoot3d.visible = gridVisible3d;
+  const button = document.getElementById('v3dGrid');
+  if (button) {
+    button.setAttribute('aria-pressed', String(gridVisible3d));
+    button.textContent = gridVisible3d ? '隐藏网格' : '显示网格';
+    button.title = gridVisible3d ? '隐藏网格辅助层' : '显示网格辅助层';
+  }
+}
+
+async function loadScene3d() {
+  if (sceneLoadRequested3d || sceneModelReady3d) return sceneLoad3d;
+  sceneLoadRequested3d = true;
+  sceneLoad3d = (async () => {
+    try {
+      if (!GLTFLoader3d) ({ GLTFLoader: GLTFLoader3d } = await import('/static/vendor/GLTFLoader.js'));
+      const model = await resolveSceneModel3d();
+      sceneModelUrl3d = model.url;
+      sceneModelName3d = model.name || model.url.split('/').pop();
+      window.host3d.setInfo(`正在加载真实场景 · ${sceneModelName3d}`);
+      const loader = new GLTFLoader3d();
+      if (MeshoptDecoder3d) loader.setMeshoptDecoder(MeshoptDecoder3d);
+      const gltf = await new Promise((resolve, reject) => loader.load(model.url, resolve, undefined, reject));
+      const root = gltf.scene;
+      root.rotation.y = Number(scenePlacement3d.rotationY) || 0;
+      root.updateMatrixWorld(true);
+
+      const sourceBox = new T3.Box3().setFromObject(root);
+      const sourceSize = sourceBox.getSize(new T3.Vector3());
+      if (!sourceSize.x || !sourceSize.z) throw new Error('场景模型没有有效的水平尺寸');
+
+      const area = scenePlacement3d.simulationArea || {};
+      const clamp01 = (value, fallback) => Math.max(0, Math.min(1, Number.isFinite(Number(value)) ? Number(value) : fallback));
+      sceneSimulationArea3d = {
+        minX: clamp01(area.minX, 0), minZ: clamp01(area.minZ, 0),
+        maxX: clamp01(area.maxX, 1), maxZ: clamp01(area.maxZ, 1),
+      };
+      if (sceneSimulationArea3d.maxX <= sceneSimulationArea3d.minX
+          || sceneSimulationArea3d.maxZ <= sceneSimulationArea3d.minZ) {
+        sceneSimulationArea3d = { minX: 0, minZ: 0, maxX: 1, maxZ: 1 };
+      }
+      const fit = Math.max(0.2, Math.min(1.2, Number(scenePlacement3d.fit) || 0.92));
+      const areaWidth = sceneSimulationArea3d.maxX - sceneSimulationArea3d.minX;
+      const areaDepth = sceneSimulationArea3d.maxZ - sceneSimulationArea3d.minZ;
+      const targetWidth = WORLD_W * fit / areaWidth;
+      const targetDepth = WORLD_H * fit / areaDepth;
+      const scale = Math.min(targetWidth / sourceSize.x, targetDepth / sourceSize.z);
+      const anchorX = WORLD_W * clamp01(scenePlacement3d.centerX, 0.5);
+      const anchorZ = WORLD_H * clamp01(scenePlacement3d.centerZ, 0.5);
+      const modelMinX = anchorX - sourceSize.x * scale * (sceneSimulationArea3d.minX + areaWidth / 2);
+      const modelMinZ = anchorZ - sourceSize.z * scale * (sceneSimulationArea3d.minZ + areaDepth / 2);
+      root.scale.setScalar(scale);
+      root.position.set(
+        modelMinX - sourceBox.min.x * scale,
+        -sourceBox.min.y * scale,
+        modelMinZ - sourceBox.min.z * scale,
+      );
+      root.updateMatrixWorld(true);
+      sceneWorldBox3d = new T3.Box3().setFromObject(root);
+      root.name = 'visual-scene-model';
+      root.traverse(node => {
+        if (!node.isMesh) return;
+        node.frustumCulled = true;
+        node.castShadow = false;
+        node.receiveShadow = true;
+      });
+      scene3d.add(root);
+      sceneRoot3d = root;
+      sceneSourceSize3d = sourceSize;
+      sceneModelReady3d = true;
+      buildSceneGround3d();
+      alignGridToScene3d();
+      smokeKey3d = fireKey3d = '';
+      updateSmoke3d();
+      updateFire3d();
+      setSceneVisible3d(true);
+      setSceneMaterialOpacity3d(ghostWalls3d ? 0.38 : 1);
+      setGridVisible3d(false);
+      resetView3d();
+      window.host3d.setInfo(`真实场景 · ${sceneModelName3d} · NPC ${npcPids3d.length} · 真人 ${humanPids3d.length}`);
+      return root;
+    } catch (error) {
+      sceneLoadFailed3d = true;
+      console.warn('真实 3D 场景加载失败，保留网格辅助层', error);
+      setGridVisible3d(true);
+      window.host3d.setInfo('真实场景加载失败 · 当前显示网格辅助层');
+      return null;
+    }
+  })();
+  return sceneLoad3d;
+}
+
+// ---- 静态迷宫：地板 / 网格 / 墙 / 出口 ----
+function buildMaze3d() {
+  disposeGroup3d(mazeRoot3d);
+  const root = new T3.Group();
+  root.name = 'maze3d';
+  wallMesh3d = null;
+
+  const floor = new T3.Mesh(
+    new T3.PlaneGeometry(WORLD_W, WORLD_H),
+    new T3.MeshLambertMaterial({ color: 0x1d2740 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(WORLD_W / 2, 0, WORLD_H / 2);
+  root.add(floor);
+
+  const pts = [];
+  for (let x = 0; x <= MW; x++) {
+    pts.push(new T3.Vector3(x * CELL, 0.6, 0), new T3.Vector3(x * CELL, 0.6, WORLD_H));
+  }
+  for (let y = 0; y <= MH; y++) {
+    pts.push(new T3.Vector3(0, 0.6, y * CELL), new T3.Vector3(WORLD_W, 0.6, y * CELL));
+  }
+  root.add(new T3.LineSegments(
+    new T3.BufferGeometry().setFromPoints(pts),
+    new T3.LineBasicMaterial({ color: 0x2f3f63, transparent: true, opacity: 0.55 })
+  ));
+
+  // 墙：每个格子最多贡献北/西两面，外沿再补南/东，和二维视图一致。
+  let count = 0;
+  for (let y = 0; y < MH; y++) {
+    for (let x = 0; x < MW; x++) {
+      const w = walls[y][x];
+      if (w & 1) count++;
+      if (w & 8) count++;
+      if (x === MW - 1 && (w & 2)) count++;
+      if (y === MH - 1 && (w & 4)) count++;
+    }
+  }
+  const wallMesh = new T3.InstancedMesh(
+    new T3.BoxGeometry(1, 1, 1),
+    new T3.MeshLambertMaterial({ color: 0x5a76b4 }),
+    Math.max(count, 1)
+  );
+  wallMesh.frustumCulled = false;
+  const dummy = tmpObj3d;
+  let i = 0;
+  const place = (x, y, z, sx, sy, sz) => {
+    dummy.position.set(x, y, z);
+    dummy.scale.set(sx, sy, sz);
+    dummy.rotation.set(0, 0, 0);
+    dummy.updateMatrix();
+    wallMesh.setMatrixAt(i++, dummy.matrix);
+  };
+  for (let y = 0; y < MH; y++) {
+    for (let x = 0; x < MW; x++) {
+      const w = walls[y][x];
+      const px = x * CELL, py = y * CELL;
+      if (w & 1) place(px + CELL / 2, WALL_H3D / 2, py, CELL, WALL_H3D, WALL_T3D);
+      if (w & 8) place(px, WALL_H3D / 2, py + CELL / 2, WALL_T3D, WALL_H3D, CELL);
+      if (x === MW - 1 && (w & 2)) place(px + CELL, WALL_H3D / 2, py + CELL / 2, WALL_T3D, WALL_H3D, CELL);
+      if (y === MH - 1 && (w & 4)) place(px + CELL / 2, WALL_H3D / 2, py + CELL, CELL, WALL_H3D, WALL_T3D);
+    }
+  }
+  wallMesh.count = i;
+  wallMesh.instanceMatrix.needsUpdate = true;
+  wallMesh.material.transparent = true;   // 便于“透视墙体”直接改透明度
+  root.add(wallMesh);
+  wallMesh3d = wallMesh;
+
+  // 出口：地面亮块 + 半透明光柱，方便从任意角度定位。
+  EXITS.forEach(([gx, gy]) => {
+    const ex = (gx + 0.5) * CELL, ez = (gy + 0.5) * CELL;
+    const pad = new T3.Mesh(
+      new T3.PlaneGeometry(CELL * 0.92, CELL * 0.92),
+      new T3.MeshBasicMaterial({ color: 0x35e06f })
+    );
+    pad.rotation.x = -Math.PI / 2;
+    pad.position.set(ex, 0.9, ez);
+    root.add(pad);
+    const beam = new T3.Mesh(
+      new T3.CylinderGeometry(CELL * 0.34, CELL * 0.34, 90, 14, 1, true),
+      new T3.MeshBasicMaterial({
+        color: 0x50ff78, transparent: true, opacity: 0.2,
+        side: T3.DoubleSide, depthWrite: false,
+      })
+    );
+    beam.position.set(ex, 45, ez);
+    root.add(beam);
+  });
+
+  scene3d.add(root);
+  mazeRoot3d = root;
+  alignGridToScene3d();
+  setGridVisible3d(gridVisible3d || !sceneModelReady3d);
+}
+
+// ---- 动态层：烟气 / 火源 ----
+function ensureSmokeMesh3d(cap) {
+  if (smokeMesh3d && smokeCap3d >= cap) return smokeMesh3d;
+  if (smokeMesh3d) { scene3d.remove(smokeMesh3d); smokeMesh3d.dispose(); }
+  smokeCap3d = Math.max(64, Math.ceil(cap * 1.25));
+  smokeMesh3d = new T3.InstancedMesh(
+    new T3.SphereGeometry(1, 8, 6),
+    new T3.MeshBasicMaterial({ transparent: true, opacity: 0.26, depthWrite: false }),
+    smokeCap3d
+  );
+  smokeMesh3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  smokeMesh3d.frustumCulled = false;
+  scene3d.add(smokeMesh3d);
+  return smokeMesh3d;
+}
+
+// 烟气每 50ms 就变一次，只更新实例矩阵，不重建几何体。
+function updateSmoke3d() {
+  if (!smokeCells.length) {
+    if (smokeMesh3d) smokeMesh3d.count = 0;
+    return;
+  }
+  const mesh = ensureSmokeMesh3d(smokeCells.length * 2);
+  const dummy = tmpObj3d, col = tmpCol3d;
+  const sx = sceneWorldBox3d ? (sceneWorldBox3d.max.x - sceneWorldBox3d.min.x) / WORLD_W : 1;
+  const sz = sceneWorldBox3d ? (sceneWorldBox3d.max.z - sceneWorldBox3d.min.z) / WORLD_H : 1;
+  let i = 0;
+  for (const cell of smokeCells) {
+    const v = Math.max(0.03, Math.min(1, Number(cell[2]) || 0));
+    const gx = (cell[0] + 0.5) * CELL, gz = (cell[1] + 0.5) * CELL;
+    const point = gridToScene3d(gx, gz);
+    dummy.position.set(point.x, 8 + 7 * v, point.z);
+    dummy.scale.set(CELL * sx * (0.42 + 0.5 * v), CELL * (0.24 + 0.34 * v), CELL * sz * (0.42 + 0.5 * v));
+    dummy.rotation.set(0, 0, 0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    col.setRGB(0.36 + 0.2 * v, 0.37 + 0.15 * v, 0.4);
+    mesh.setColorAt(i++, col);
+    const point2 = gridToScene3d(gx + CELL * 0.1, gz - CELL * 0.08);
+    dummy.position.set(point2.x, 16 + 20 * v, point2.z);
+    dummy.scale.set(CELL * sx * (0.32 + 0.46 * v), CELL * (0.18 + 0.3 * v), CELL * sz * (0.32 + 0.46 * v));
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    col.setRGB(0.44 + 0.2 * v, 0.44 + 0.14 * v, 0.47);
+    mesh.setColorAt(i++, col);
+  }
+  mesh.count = i;
+  mesh.instanceMatrix.needsUpdate = true;
+  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+}
+
+function ensureFireMesh3d(cap) {
+  if (fireMesh3d && fireCap3d >= cap) return fireMesh3d;
+  if (fireMesh3d) { scene3d.remove(fireMesh3d); fireMesh3d.dispose(); }
+  fireCap3d = Math.max(16, Math.ceil(cap * 1.25));
+  fireMesh3d = new T3.InstancedMesh(
+    new T3.BoxGeometry(CELL * 0.8, 16, CELL * 0.8),
+    new T3.MeshBasicMaterial({ color: 0xff5a20, transparent: true, opacity: 0.55, depthWrite: false }),
+    fireCap3d
+  );
+  fireMesh3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  fireMesh3d.frustumCulled = false;
+  scene3d.add(fireMesh3d);
+  return fireMesh3d;
+}
+
+function updateFire3d() {
+  if (!fireCells.length) {
+    if (fireMesh3d) fireMesh3d.count = 0;
+    return;
+  }
+  const mesh = ensureFireMesh3d(fireCells.length);
+  const dummy = tmpObj3d;
+  const sx = sceneWorldBox3d ? (sceneWorldBox3d.max.x - sceneWorldBox3d.min.x) / WORLD_W : 1;
+  const sz = sceneWorldBox3d ? (sceneWorldBox3d.max.z - sceneWorldBox3d.min.z) / WORLD_H : 1;
+  fireCells.forEach((cell, i) => {
+    const point = gridToScene3d((cell[0] + 0.5) * CELL, (cell[1] + 0.5) * CELL);
+    dummy.position.set(point.x, 8, point.z);
+    dummy.scale.set(sx, 1, sz);
+    dummy.rotation.set(0, 0, 0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  });
+  mesh.count = fireCells.length;
+  mesh.instanceMatrix.needsUpdate = true;
+}
+
+// ---- 角色层：真人单独一档，人群中一眼可辨 ----
+function buildCrowd3d() {
+  disposeGroup3d(npcMesh3d);
+  disposeGroup3d(humanBody3d);
+  disposeGroup3d(humanBeam3d);
+  disposeGroup3d(npcPad3d);
+  disposeGroup3d(humanPad3d);
+  npcMesh3d = humanBody3d = humanBeam3d = null;
+  npcPad3d = humanPad3d = null;
+
+  // 角色：头身一体的胶囊，几何体本身已按比例放大，鸟瞰时仍能辨认。
+  npcMesh3d = new T3.InstancedMesh(
+    new T3.CapsuleGeometry(CAP_R3D, CAP_LEN3D, 3, 8),
+    new T3.MeshLambertMaterial(),
+    400
+  );
+  npcMesh3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  npcMesh3d.frustumCulled = false;
+  scene3d.add(npcMesh3d);
+
+  // 脚下的光环：即使人物被墙或人群叠住，地面上的点仍然连续可见。
+  npcPad3d = new T3.InstancedMesh(
+    new T3.CircleGeometry(PAD_R3D, 12),
+    new T3.MeshBasicMaterial({ transparent: true, opacity: 0.55, side: T3.DoubleSide, depthWrite: false }),
+    400
+  );
+  npcPad3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  npcPad3d.frustumCulled = false;
+  scene3d.add(npcPad3d);
+
+  humanBody3d = new T3.InstancedMesh(
+    new T3.CapsuleGeometry(HUMAN_R3D, HUMAN_LEN3D, 4, 12),
+    new T3.MeshLambertMaterial(),
+    24
+  );
+  humanBody3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  humanBody3d.frustumCulled = false;
+  scene3d.add(humanBody3d);
+
+  humanPad3d = new T3.InstancedMesh(
+    new T3.RingGeometry(PAD_R3D * 1.5, PAD_R3D * 2.1, 20),
+    new T3.MeshBasicMaterial({ transparent: true, opacity: 0.85, side: T3.DoubleSide, depthWrite: false }),
+    24
+  );
+  humanPad3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  humanPad3d.frustumCulled = false;
+  scene3d.add(humanPad3d);
+
+  // 真人头顶的光柱：在人堆里也能一眼找到。
+  humanBeam3d = new T3.InstancedMesh(
+    new T3.CylinderGeometry(CELL * 0.42, CELL * 0.42, 120, 10, 1, true),
+    new T3.MeshBasicMaterial({
+      color: 0x42d6ff, transparent: true, opacity: 0.28,
+      side: T3.DoubleSide, depthWrite: false,
+    }),
+    24
+  );
+  humanBeam3d.instanceMatrix.setUsage(T3.DynamicDrawUsage);
+  humanBeam3d.frustumCulled = false;
+  scene3d.add(humanBeam3d);
+}
+
+// 选中高亮：一个贴在选中角色头顶的发光圆环，跟随其移动。
+function ensureSelectRing3d() {
+  if (selectRing3d) return selectRing3d;
+  selectRing3d = new T3.Mesh(
+    new T3.TorusGeometry(PAD_R3D * 2.1, PAD_R3D * 0.28, 8, 28),
+    new T3.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.95, depthTest: false })
+  );
+  selectRing3d.renderOrder = 10;
+  selectRing3d.frustumCulled = false;
+  scene3d.add(selectRing3d);
+  return selectRing3d;
+}
+
+// 脚下光环是躺平的圆面，需要绕 X 轴 -90°；单独复用一份临时矩阵。
+const padObj3d = { obj: null };
+function placePad3d(mesh, idx, x, z, scale) {
+  if (!padObj3d.obj) {
+    padObj3d.obj = new T3.Object3D();
+    padObj3d.obj.rotation.x = -Math.PI / 2;
+  }
+  const o = padObj3d.obj;
+  o.position.set(x, 1.2, z);
+  o.scale.set(scale, scale, scale);
+  o.updateMatrix();
+  mesh.setMatrixAt(idx, o.matrix);
+}
+
+function sync3dData() {
+  // walls 要等主机 WebSocket 的 init / maze 消息，之前只画角色层。
+  if (walls) {
+    const sig = `${MW}x${MH}:${WORLD_W}x${WORLD_H}:${CELL}:${EXITS.map(e => e[0] + '_' + e[1]).join(',')}:${maze3dVersion}`;
+    if (sig !== mazeKey3d) {
+      const firstBuild = !mazeKey3d;
+      mazeKey3d = sig;
+      buildMaze3d();
+      setGhostWalls3d(ghostWalls3d);
+      if (firstBuild) resetView3d();
+    }
+  }
+
+  const sKey = smokeCells.map(c => c[0] + ',' + c[1] + ',' + Math.round((c[2] || 0) * 8)).join(';');
+  if (sKey !== smokeKey3d) { smokeKey3d = sKey; updateSmoke3d(); }
+  const fKey = fireCells.map(c => c[0] + ',' + c[1]).join(';');
+  if (fKey !== fireKey3d) { fireKey3d = fKey; updateFire3d(); }
+
+  updateCrowd3d();
+}
+
+function updateCrowd3d() {
+  if (!npcMesh3d) return;
+  const dummy = tmpObj3d, col = tmpCol3d;
+  const now = performance.now();
+  npcPids3d = []; humanPids3d = [];
+  let np = 0, nh = 0;
+  let humans = 0, escaped = 0, failed = 0;
+
+  for (const pid in players) {
+    const p = players[pid];
+    const point = gridToScene3d(p.x, p.y);
+    if (p.human) humans++;
+    if (p.escaped) escaped++;
+    if (p.failed) failed++;
+
+    const dead = p.failed;
+    const inSmoke = !dead && !p.escaped && (p.currentSmoke || 0) >= 0.08;
+    const hurt = dead || p.health < 0.65;
+    if (p.human) {
+      col.set(p.escaped ? '#50ff78' : (dead ? '#ff4f5e' : '#42d6ff'));
+    } else if (p.escaped) {
+      col.set('#50ff78');
+    } else if (hurt) {
+      col.set('#ff4f5e');
+    } else if (inSmoke) {
+      col.set('#ffd54a');
+    } else {
+      col.set(p.color || '#8090a8');
+    }
+
+    if (p.human) {
+      // humanBody 几何体已经是 NPC 的 1.5 倍，这里只需处理倒下与离线。
+      const scale = dead ? 0.001 : (p.online === false ? 1.12 : 1);
+      dummy.position.set(point.x, dead ? 1 : HUMAN_R3D + HUMAN_LEN3D * 0.68, point.z);
+      dummy.scale.set(scale, scale, scale);
+      dummy.rotation.set(0, 0, 0);
+      dummy.updateMatrix();
+      humanBody3d.setMatrixAt(nh, dummy.matrix);
+      humanBody3d.setColorAt(nh, col);
+
+      placePad3d(humanPad3d, nh, point.x, point.z, dead ? 0.001 : 1);
+      humanPad3d.setColorAt(nh, col);
+
+      dummy.position.set(point.x, 60, point.z);
+      dummy.scale.set(dead ? 0.001 : 1, dead ? 0.001 : 1, dead ? 0.001 : 1);
+      dummy.updateMatrix();
+      humanBeam3d.setMatrixAt(nh, dummy.matrix);
+      humanBeam3d.setColorAt(nh, col);
+
+      humanPids3d.push(p.pid);
+      nh++;
+    } else {
+      dummy.position.set(point.x, dead ? 1 : CAP_R3D + CAP_LEN3D / 2, point.z);
+      dummy.scale.set(1, 1, 1);
+      dummy.rotation.set(dead ? Math.PI / 2 : 0, 0, 0);
+      dummy.updateMatrix();
+      npcMesh3d.setMatrixAt(np, dummy.matrix);
+      npcMesh3d.setColorAt(np, col);
+
+      placePad3d(npcPad3d, np, point.x, point.z, dead ? 0.5 : 1);
+      npcPad3d.setColorAt(np, col);
+
+      npcPids3d.push(p.pid);
+      np++;
+    }
+  }
+
+  npcMesh3d.count = np;
+  npcMesh3d.instanceMatrix.needsUpdate = true;
+  if (npcMesh3d.instanceColor) npcMesh3d.instanceColor.needsUpdate = true;
+  npcPad3d.count = np;
+  npcPad3d.instanceMatrix.needsUpdate = true;
+  if (npcPad3d.instanceColor) npcPad3d.instanceColor.needsUpdate = true;
+  humanBody3d.count = nh;
+  humanBody3d.instanceMatrix.needsUpdate = true;
+  if (humanBody3d.instanceColor) humanBody3d.instanceColor.needsUpdate = true;
+  humanPad3d.count = nh;
+  humanPad3d.instanceMatrix.needsUpdate = true;
+  if (humanPad3d.instanceColor) humanPad3d.instanceColor.needsUpdate = true;
+  humanBeam3d.count = nh;
+  humanBeam3d.instanceMatrix.needsUpdate = true;
+  if (humanBeam3d.instanceColor) humanBeam3d.instanceColor.needsUpdate = true;
+
+  // 选中环：贴着被选中角色的高度，白环 + 轻微呼吸，方便在人群里定位。
+  const sel = selectedPid ? players[selectedPid] : null;
+  if (sel) {
+    const ring = ensureSelectRing3d();
+    ring.visible = true;
+    const point = gridToScene3d(sel.x, sel.y);
+    ring.position.set(point.x, sel.human ? HUMAN_TOP3D + 10 : NPC_TOP3D + 8, point.z);
+    ring.rotation.x = Math.PI / 2;
+    ring.scale.setScalar(1 + 0.12 * Math.sin(now / 220));
+  } else if (selectRing3d) {
+    selectRing3d.visible = false;
+  }
+
+  if (now - v3dInfoAt > 250) {
+    v3dInfoAt = now;
+    window.host3d.setInfo(`NPC ${np} · 真人 ${nh} · 逃出 ${escaped} · 倒下 ${failed} · 场上 ${np + nh}`);
+  }
+  if (follow3d && !followPid3d()) {
+    const first = humanPids3d[0];
+    if (first) followPid3d(first);
+  }
+}
+
+// 跟随真人：点击或列表选中优先，否则跟第一个真人。
+let followPid = null;
+function followPid3d(pid) {
+  if (pid === undefined) return followPid;
+  followPid = pid;
+  return followPid;
+}
+
+function update3dCamera(dt) {
+  if (auto3d && !follow3d) {
+    orbit3d.theta += dt * 0.16;
+    // 旋转时地图的投影尺寸会变，让距离平滑跟随“刚好铺满”，
+    // 既不把地图甩出画面，也不留下大片空白。
+    const want = fitDistAt3d(orbit3d.theta);
+    orbit3d.dist += (want - orbit3d.dist) * Math.min(1, dt * 1.2);
+  }
+  if (follow3d) {
+    const pid = followPid3d() || humanPids3d[0];
+    const p = pid ? players[pid] : null;
+    if (p) {
+      const point = gridToScene3d(p.x, p.y);
+      const k = Math.min(1, dt * 3.2);
+      orbit3d.target.x += (point.x - orbit3d.target.x) * k;
+      orbit3d.target.z += (point.z - orbit3d.target.z) * k;
+      if (orbit3d.dist > 1400) orbit3d.dist = 1400;
+    }
+  }
+  place3dCamera();
+}
+
+let ghostWalls3d = true;   // 默认透视，保证鸟瞰时所有角色都不被墙体挡住
+function setGhostWalls3d(on) {
+  ghostWalls3d = !!on;
+  if (wallMesh3d) {
+    wallMesh3d.material.transparent = true;
+    wallMesh3d.material.opacity = ghostWalls3d ? 0.3 : 1;
+    wallMesh3d.material.depthWrite = !ghostWalls3d;
+    wallMesh3d.material.needsUpdate = true;
+  }
+  if (sceneRoot3d) setSceneMaterialOpacity3d(ghostWalls3d ? 0.38 : 1);
+  const b = document.getElementById('v3dWalls');
+  b.setAttribute('aria-pressed', String(ghostWalls3d));
+  b.textContent = ghostWalls3d ? '模型实心' : '模型透视';
+  b.title = ghostWalls3d ? '把真实建筑模型变为半透明' : '恢复真实建筑模型实心显示';
+  b.setAttribute('aria-label', b.textContent);
+}
+
+function setAuto3d(on) {
+  auto3d = !!on;
+  const b = document.getElementById('v3dAuto');
+  b.setAttribute('aria-pressed', String(auto3d));
+  b.textContent = auto3d ? '停止旋转' : '自动旋转';
+}
+
+function setFollow3d(on) {
+  follow3d = !!on;
+  if (follow3d) { setAuto3d(false); orbit3d.dist = Math.min(orbit3d.dist, 1400); }
+  const b = document.getElementById('v3dFollow');
+  b.setAttribute('aria-pressed', String(follow3d));
+  b.textContent = follow3d ? '取消跟随' : '跟随真人';
+}
+
+// 跟随真人时点选别的角色，就把镜头切到那个人身上。
+function select3d(pid) {
+  window.host3d.select(pid);
+  if (follow3d) followPid3d(pid);
+}
+
+// 把镜头平移到某个角色上方（保持当前距离与角度），用于名单点击/双击聚焦。
+function focus3d(pid) {
+  const p = players[pid];
+  if (!p || !cam3d) return;
+  const point = gridToScene3d(p.x, p.y);
+  orbit3d.target.set(point.x, 0, point.z);
+  place3dCamera();
+}
+
+// 双击画面：直接在跟随模式下盯住选中角色。
+function focusFollow3d() {
+  const pid = selectedPid || humanPids3d[0];
+  if (!pid || !players[pid]) return;
+  select3d(pid);
+  setFollow3d(true);
+  followPid3d(pid);
+}
+
+const ptr3d = { down: false, button: 0, x: 0, y: 0, moved: 0 };
+const ray3d = () => new T3.Raycaster();
+let raycaster3d = null;
+
+const pickProj3d = { v: null };
+// 角色在全局视角下只有几像素宽，纯射线拾取几乎点不中。
+// 所以先做精确射线检测，落空再退回到“屏幕上离点击点最近的命中圈”。
+function pick3d(event) {
+  if (!raycaster3d) raycaster3d = ray3d();
+  const rect = cvs3dEl.getBoundingClientRect();
+  const px = event.clientX - rect.left, py = event.clientY - rect.top;
+  const ndc = new T3.Vector2(
+    (px / rect.width) * 2 - 1,
+    -(py / rect.height) * 2 + 1
+  );
+  raycaster3d.setFromCamera(ndc, cam3d);
+  const targets = [];
+  if (humanBody3d && humanBody3d.count) targets.push(humanBody3d, humanPad3d, humanBeam3d);
+  if (npcMesh3d && npcMesh3d.count) targets.push(npcMesh3d, npcPad3d);
+  for (const hit of raycaster3d.intersectObjects(targets, false)) {
+    const pids = (hit.object === humanBody3d || hit.object === humanPad3d || hit.object === humanBeam3d)
+      ? humanPids3d : npcPids3d;
+    const pid = pids[hit.instanceId];
+    if (pid) { select3d(pid); return; }
+  }
+
+  // 备用方案：投影到屏幕后取最近的角色，真人优先。
+  if (!pickProj3d.v) pickProj3d.v = new T3.Vector3();
+  const v = pickProj3d.v;
+  const limit = Math.max(20, Math.min(rect.width, rect.height) * 0.035);
+  let bestPid = null, bestD = limit;
+  const scan = (pids, bias) => {
+    for (const pid of pids) {
+      const p = players[pid];
+      if (!p) continue;
+      const point = gridToScene3d(p.x, p.y);
+      v.set(point.x, p.human ? HUMAN_R3D + HUMAN_LEN3D / 2 : CAP_R3D + CAP_LEN3D / 2, point.z).project(cam3d);
+      if (v.z < -1 || v.z > 1) continue;
+      const sx = (v.x + 1) / 2 * rect.width;
+      const sy = (-v.y + 1) / 2 * rect.height;
+      const d = Math.hypot(sx - px, sy - py) * bias;
+      if (d < bestD) { bestD = d; bestPid = pid; }
+    }
+  };
+  scan(humanPids3d, 0.6);   // 真人给一点额外权重，人群里优先选中
+  scan(npcPids3d, 1);
+  if (bestPid) select3d(bestPid);
+}
+
+function rotate3d(dx, dy, rect) {
+  const w = rect ? rect.width : cvs3dEl.clientWidth || 1;
+  const h = rect ? rect.height : cvs3dEl.clientHeight || 1;
+  orbit3d.theta -= (dx / w) * Math.PI * 2;
+  orbit3d.phi = Math.max(0.06, Math.min(1.35, orbit3d.phi - (dy / h) * Math.PI * 0.9));
+  if (auto3d) setAuto3d(false);
+}
+
+function pan3d(dx, dy, rect) {
+  const w = rect ? rect.width : cvs3dEl.clientWidth || 1;
+  const h = rect ? rect.height : cvs3dEl.clientHeight || 1;
+  const k = orbit3d.dist / Math.min(w, h) * 1.6;
+  // 摄像机右向量与前进方向（均投影到地面）
+  const right = new T3.Vector3(Math.cos(orbit3d.theta), 0, -Math.sin(orbit3d.theta));
+  const fwd = new T3.Vector3(Math.sin(orbit3d.theta), 0, Math.cos(orbit3d.theta));
+  orbit3d.target.addScaledVector(right, -dx * k);
+  orbit3d.target.addScaledVector(fwd, -dy * k);
+  if (follow3d) setFollow3d(false);
+}
+
+function zoom3d(factor) {
+  orbit3d.dist = Math.max(orbit3d.min, Math.min(orbit3d.max, orbit3d.dist * factor));
+}
+
+function tick3d() {
+  raf3d = requestAnimationFrame(tick3d);
+  if (!T3 || !r3d) return;
+  const now = performance.now();
+  // GLB scenes can be millions of triangles. Limit expensive model redraws to
+  // 24 FPS so the host controls and WebSocket updates remain responsive.
+  if (sceneModelReady3d && now - lastRenderAt3d < 1000 / 24) return;
+  lastRenderAt3d = now;
+  const dt = lastT3d ? Math.min(0.06, (now - lastT3d) / 1000) : 0.016;
+  lastT3d = now;
+  sync3dData();
+  update3dCamera(dt);
+  r3d.render(scene3d, cam3d);
+  if (!liveDone3d) {
+    liveDone3d = true;
+    resize3d();
+    window.host3d.setLive(true);
+    if (!hintShown3d) {
+      hintShown3d = true;
+      setStatus('三维总览：拖动旋转，滚轮缩放，点击角色查看详情', 'ok');
+    }
+  }
+}
+
+function stop3dLoop() {
+  if (raf3d) cancelAnimationFrame(raf3d);
+  raf3d = null;
+  lastT3d = 0;
+  lastRenderAt3d = 0;
+  liveDone3d = false;
+}
+
+// 二维/三维模式切换时启停渲染循环，不在三维时不占 GPU。
+function host3dOnModeChange(on) {
+  if (!T3) return;
+  if (on) {
+    resize3d();
+    sync3dData();
+    loadScene3d();
+    if (!raf3d) { lastT3d = 0; raf3d = requestAnimationFrame(tick3d); }
+  } else {
+    stop3dLoop();
+  }
+}
+
+function bind3dControls() {
+  document.getElementById('v3dAuto').addEventListener('click', () => setAuto3d(!auto3d));
+  document.getElementById('v3dFollow').addEventListener('click', () => setFollow3d(!follow3d));
+  document.getElementById('v3dWalls').addEventListener('click', () => setGhostWalls3d(!ghostWalls3d));
+  document.getElementById('v3dScene').addEventListener('click', () => setSceneVisible3d(!sceneVisible3d));
+  document.getElementById('v3dGrid').addEventListener('click', () => setGridVisible3d(!gridVisible3d));
+  document.getElementById('v3dReset').addEventListener('click', () => {
+    setFollow3d(false);
+    resetView3d();
+  });
+
+  cvs3dEl.addEventListener('contextmenu', e => e.preventDefault());
+  cvs3dEl.addEventListener('pointerdown', e => {
+    ptr3d.down = true; ptr3d.button = e.button;
+    ptr3d.x = e.clientX; ptr3d.y = e.clientY; ptr3d.moved = 0;
+    try { cvs3dEl.setPointerCapture(e.pointerId); } catch (_) { /* 忽略 */ }
+    e.preventDefault();
+  });
+  cvs3dEl.addEventListener('pointermove', e => {
+    if (!ptr3d.down) return;
+    const dx = e.clientX - ptr3d.x, dy = e.clientY - ptr3d.y;
+    ptr3d.x = e.clientX; ptr3d.y = e.clientY;
+    ptr3d.moved += Math.abs(dx) + Math.abs(dy);
+    const rect = cvs3dEl.getBoundingClientRect();
+    if (ptr3d.button === 2 || ptr3d.button === 1 || e.shiftKey) pan3d(dx, dy, rect);
+    else rotate3d(dx, dy, rect);
+    e.preventDefault();
+  });
+  const endPointer = e => {
+    if (!ptr3d.down) return;
+    ptr3d.down = false;
+    if (ptr3d.moved < 6) pick3d(e);
+  };
+  cvs3dEl.addEventListener('pointerup', endPointer);
+  cvs3dEl.addEventListener('dblclick', e => { e.preventDefault(); focusFollow3d(); });
+  cvs3dEl.addEventListener('pointercancel', () => { ptr3d.down = false; });
+  cvs3dEl.addEventListener('wheel', e => {
+    e.preventDefault();
+    zoom3d(e.deltaY > 0 ? 1.12 : 1 / 1.12);
+    if (auto3d) setAuto3d(false);
+  }, { passive: false });
+}
+
+window.host3dOnModeChange = host3dOnModeChange;
+
+async function init3d() {
+  try {
+    T3 = await import('/static/vendor/three.module.js');
+  } catch (error) {
+    console.warn('三维引擎加载失败', error);
+    window.host3d.fail('三维总览不可用（3D 引擎加载失败），已保留二维视图');
+    return;
+  }
+  try {
+    tmpObj3d = new T3.Object3D();
+    tmpCol3d = new T3.Color();
+    scene3d = new T3.Scene();
+    scene3d.background = new T3.Color(0x080d18);
+    cam3d = new T3.PerspectiveCamera(45, 1, 1, 30000);
+    // 光照：让墙体和角色的立体形状在俯视角度下也能看清。
+    scene3d.add(new T3.HemisphereLight(0xd7e3ff, 0x1a2438, 1.15));
+    const sun = new T3.DirectionalLight(0xffffff, 1.5);
+    sun.position.set(0.6, 1, 0.4);
+    scene3d.add(sun);
+    const fill = new T3.DirectionalLight(0x8fb0e0, 0.7);
+    fill.position.set(-0.5, 0.7, -0.6);
+    scene3d.add(fill);
+
+    r3d = new T3.WebGLRenderer({ canvas: cvs3dEl, antialias: true, alpha: false });
+    r3d.outputColorSpace = T3.SRGBColorSpace;
+    r3d.setClearColor(0x080d18, 1);
+    bind3dControls();
+    buildCrowd3d();
+    setSceneVisible3d(true);
+    setGridVisible3d(false);
+    // 迷宫墙体等 init / maze 消息到达后再由 sync3dData() 建立。
+    resetView3d();
+    resize3d();
+    mazeKey3d = '';
+    host3dReady = true;
+    sync3dToggleState();
+    view3dToggle.title = '切换到三维总览，一屏观察所有角色（快捷键 3）';
+    if (host3dPendingEnter) { host3dPendingEnter = false; setMode3d(true); }
+  } catch (error) {
+    console.warn('三维总览初始化失败', error);
+    window.host3d.fail('三维总览初始化失败（' + (error && error.message ? error.message : '未知原因') + '），已保留二维视图');
+  }
+}
+
+// 首帧之前按下快捷键时，等引擎就绪再自动进入。
+const setMode3dRequest = setMode3d;
+setMode3d = function (on) {
+  if (on && !host3dReady && !host3dFailed) { host3dPendingEnter = true; setStatus('三维总览加载中…', ''); return; }
+  setMode3dRequest(on);
+};
+
+init3d().catch(error => console.warn('三维总览未启动', error));
+
+finishHostLogin().catch(error => {
+  adminLogin.hidden = false;
+  adminLoginError.textContent = error.message;
+});
 </script>
 </body>
 </html>

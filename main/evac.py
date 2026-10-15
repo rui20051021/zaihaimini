@@ -2,7 +2,7 @@
 """火灾疏散：社会力 + 距离场导航 + 烟气蔓延 + 数据采集。"""
 from __future__ import annotations
 
-import csv, io, json, math, random, time
+import contextlib, csv, io, json, math, os, random, tempfile, time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -29,6 +29,13 @@ V_MAX = 32.0                 # 3.2 m/s
 TRACK_DT = 0.2
 MAX_DURATION = 180.0
 BIN = 20.0
+SCENARIO_VERSION = 1
+DATA_SCHEMA_VERSION = 1
+
+
+class DataPersistenceError(RuntimeError):
+    """Raised when experiment data could not be durably written."""
+
 
 NPC_COLORS = [
     "#7a8bab", "#6e86b0", "#8090a8", "#748aa4",
@@ -408,6 +415,7 @@ class EvacSim:
             raise ValueError(f"NPC 人数必须是 0 到 {MAX_NPCS} 之间的整数")
         if n == self.npc_target:
             return
+        self.archive_trial(reason="npc_count_change")
         self.npc_target = n
         # A changed population defines a new experiment; do not mix denominators/tracks.
         self.reset_crowd(keep_humans=True)
@@ -580,6 +588,25 @@ class EvacSim:
         self.paused = (not self.paused) if on is None else bool(on)
         self.phase = "paused" if self.paused else "running"
 
+    def end(self, reason: str = "manual_end") -> Optional[dict]:
+        """Close the current trial and persist its final state.
+
+        Ending is deliberately distinct from resetting: all agents and their
+        tracks remain available for export, while a later start can create a
+        new trial through ``reset_crowd``.  The archive exception is allowed
+        to propagate so the HTTP layer can report a storage failure instead
+        of claiming that the trial was safely saved.
+        """
+        if self.phase == "idle":
+            return None
+        if self.phase != "ended":
+            self.phase = "ended"
+            self.paused = False
+        elif self._archived_trial == self.trial_seq:
+            return None
+        self.summary = self.build_summary()
+        return self.archive_trial(reason=reason)
+
     def ignite(self, gx: Optional[int] = None, gy: Optional[int] = None):
         mw, mh = self.maze.mw, self.maze.mh
         exits = self._exit_cells()
@@ -654,13 +681,16 @@ class EvacSim:
             self.spawn_zone = None
             return
         try:
-            zx0, zy0, zx1, zy1 = (int(v) for v in zone)
+            values = tuple(zone)
         except (TypeError, ValueError):
             raise ValueError("起始区必须是 4 个整数 (x0, y0, x1, y1)")
+        if len(values) != 4 or any(isinstance(v, bool) or not isinstance(v, int) for v in values):
+            raise ValueError("起始区必须是 4 个整数 (x0, y0, x1, y1)")
+        zx0, zy0, zx1, zy1 = values
         mw, mh = self.maze.mw, self.maze.mh
-        zx0, zx1 = sorted((max(0, zx0), min(zx1, mw - 1)))
-        zy0, zy1 = sorted((max(0, zy0), min(zy1, mh - 1)))
-        if zx1 < zx0 or zy1 < zy0:
+        zx0, zx1 = sorted((zx0, zx1))
+        zy0, zy1 = sorted((zy0, zy1))
+        if zx0 < 0 or zy0 < 0 or zx1 >= mw or zy1 >= mh:
             raise ValueError("起始区超出地图范围")
         self.spawn_zone = (zx0, zy0, zx1, zy1)
 
@@ -704,19 +734,51 @@ class EvacSim:
     def _finish(self):
         self.phase = "ended"
         self.summary = self.build_summary()
-        self.save_outputs(stamped=True)
-        # 本场已落盘；随后若发生重置，不要重复归档同一场。
-        self._archived_trial = self.trial_seq
+        try:
+            self.archive_trial(reason="finished")
+        except DataPersistenceError as exc:
+            # Keep the simulation loop alive. Destructive operations will retry
+            # the archive and refuse to clear the in-memory trial if it fails.
+            print(f"场次自动归档失败，数据仍保留在内存中: {exc}")
+
+    @staticmethod
+    def _atomic_write_text(path: Path, text: str):
+        """Write a result file via same-directory temp file + replace.
+
+        A process termination or disk-full error must not leave a truncated
+        `evac_latest.*` file that looks valid to a later analysis script.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(tmp_name, path)
+            dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            dir_fd = os.open(path.parent, dir_flags)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp_name)
+            raise
 
     def save_outputs(self, stamped: bool = False):
         try:
-            summary = self.summary or self.build_summary()
-            self.summary = summary
+            summary = self.build_summary() if stamped or self.summary is None else self.summary
+            if stamped:
+                self.summary = summary
+            payload = json.dumps(summary, ensure_ascii=False)
+            tracks = self.export_csv()
             latest_json = self.data_dir / "evac_latest.json"
             latest_csv = self.data_dir / "evac_latest_tracks.csv"
-            payload = json.dumps(summary, ensure_ascii=False)
-            latest_json.write_text(payload, encoding="utf-8")
-            latest_csv.write_text(self.export_csv(), encoding="utf-8")
+            self._atomic_write_text(latest_csv, tracks)
+            self._atomic_write_text(latest_json, payload)
             names = {"json": latest_json.name, "csv": latest_csv.name}
             if stamped:
                 stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -724,15 +786,21 @@ class EvacSim:
                 tag = f"_t{self.trial_seq:03d}" if self.trial_seq else ""
                 if self.run_id:
                     tag += f"_{self.run_id}"
-                json_path = self.data_dir / f"evac_{stamp}{tag}.json"
-                csv_path = self.data_dir / f"evac_{stamp}{tag}_tracks.csv"
-                json_path.write_text(payload, encoding="utf-8")
-                csv_path.write_text(latest_csv.read_text(encoding="utf-8"), encoding="utf-8")
+                suffix = 1
+                while True:
+                    unique_tag = tag if suffix == 1 else f"{tag}_{suffix:02d}"
+                    json_path = self.data_dir / f"evac_{stamp}{unique_tag}.json"
+                    csv_path = self.data_dir / f"evac_{stamp}{unique_tag}_tracks.csv"
+                    if not json_path.exists() and not csv_path.exists():
+                        break
+                    suffix += 1
+                self._atomic_write_text(csv_path, tracks)
+                self._atomic_write_text(json_path, payload)
                 names = {"json": json_path.name, "csv": csv_path.name}
             self.last_saved = names
             print(f"[疏散数据已保存] {self.data_dir / names['json']}")
         except Exception as e:
-            print("保存疏散数据失败:", e)
+            raise DataPersistenceError(f"保存疏散数据失败: {e}") from e
 
     def _spread_fire(self, now: float):
         if not self.burning:
@@ -1317,6 +1385,7 @@ class EvacSim:
         n_humans = max(1, len(humans))
         n_npcs = max(1, len(npcs))
         return {
+            "schema_version": DATA_SCHEMA_VERSION,
             # ---- 实验元数据：用于多场次分组、追溯与统计 ----
             "experiment": {
                 "experiment_id": self.experiment_id,
@@ -1415,7 +1484,7 @@ class EvacSim:
             return True
         return any(a.track for a in self.agents.values())
 
-    def archive_trial(self, reason: str = "reset") -> Optional[dict]:
+    def archive_trial(self, reason: str = "reset", finalize: bool = True) -> Optional[dict]:
         """把当前场次落盘为带时间戳的独立文件。
 
         重置/重建会清空内存状态，若此前的数据尚未落盘就会永久丢失；
@@ -1423,14 +1492,16 @@ class EvacSim:
         """
         if not self.has_trial_data() or self._archived_trial == self.trial_seq:
             return None
-        summary = self.summary or self.build_summary()
-        self.summary = summary
+        previous_summary = self.summary
+        if self.phase != "running":
+            self.summary = self.summary or self.build_summary()
         try:
             self.save_outputs(stamped=True)
-        except Exception as e:      # save_outputs 自身已兜底，这里再保一层。
-            print("归档当前场次失败:", e)
-            return None
-        self._archived_trial = self.trial_seq
+        finally:
+            if self.phase == "running":
+                self.summary = previous_summary
+        if finalize:
+            self._archived_trial = self.trial_seq
         print(f"[场次已归档] trial={self.trial_seq} reason={reason}")
         return self.last_saved
 
@@ -1485,7 +1556,7 @@ class EvacSim:
     def export_scenario(self) -> dict:
         maze = self.maze
         return {
-            "version": 1,
+            "version": SCENARIO_VERSION,
             "seed": getattr(maze, "seed", self.seed),
             "complexity": maze.complexity,
             "view_level": getattr(maze, "view_level", 3),
@@ -1506,25 +1577,83 @@ class EvacSim:
         }
 
     def apply_scenario_state(self, data: dict):
-        n = int(data.get("npc_target", self.npc_target))
-        if isinstance(n, bool) or not 0 <= n <= MAX_NPCS:
+        if not isinstance(data, dict):
+            raise ValueError("场景必须是 JSON 对象")
+        version = data.get("version", SCENARIO_VERSION)
+        if isinstance(version, bool) or not isinstance(version, int) \
+                or version != SCENARIO_VERSION:
+            raise ValueError(f"不支持的场景版本: {version}")
+        raw_n = data.get("npc_target", self.npc_target)
+        if isinstance(raw_n, bool) or not isinstance(raw_n, int):
             raise ValueError(f"NPC 人数必须是 0 到 {MAX_NPCS} 之间的整数")
-        self.npc_target = n
-        self.panic = max(0.0, min(1.0, float(data.get("panic", self.panic))))
+        n = raw_n
+        if not 0 <= n <= MAX_NPCS:
+            raise ValueError(f"NPC 人数必须是 0 到 {MAX_NPCS} 之间的整数")
+        panic = float(data.get("panic", self.panic))
+        if not math.isfinite(panic) or not 0 <= panic <= 1:
+            raise ValueError("恐慌系数必须在 0 到 1 之间")
         scale = float(data.get("time_scale", self.time_scale))
-        if not 0.25 <= scale <= 4.0:
+        if not math.isfinite(scale) or not 0.25 <= scale <= 4.0:
             raise ValueError("倍速必须在 0.25 到 4 之间")
-        self.time_scale = scale
         wind = data.get("wind") or {}
-        self.set_wind(float(wind.get("x", 0.0)), float(wind.get("y", 0.0)))
+        if not isinstance(wind, dict):
+            raise ValueError("风场数据格式不合法")
+        wind_x, wind_y = float(wind.get("x", 0.0)), float(wind.get("y", 0.0))
+        if (not math.isfinite(wind_x) or not math.isfinite(wind_y)
+                or math.hypot(wind_x, wind_y) > 8):
+            raise ValueError("风速合速度不能超过 8 m/s")
         zone = data.get("spawn_zone")
-        self.set_spawn_zone(zone)
-        self.burning = {tuple(cell) for cell in data.get("fire") or []}
-        self.heating = {}
-        for item in data.get("heating") or []:
-            if len(item) >= 3:
-                self.heating[(int(item[0]), int(item[1]))] = float(item[2])
+        if zone is not None:
+            if not isinstance(zone, (list, tuple)) or len(zone) != 4:
+                raise ValueError("起始区必须是 4 个整数 (x0, y0, x1, y1)")
+            if any(isinstance(value, bool) or not isinstance(value, int) for value in zone):
+                raise ValueError("起始区必须是 4 个整数 (x0, y0, x1, y1)")
+            x0, y0, x1, y1 = zone
+            if min(x0, x1) < 0 or max(x0, x1) >= self.maze.mw \
+                    or min(y0, y1) < 0 or max(y0, y1) >= self.maze.mh:
+                raise ValueError("起始区超出地图范围")
+        fire = data.get("fire") or []
+        if not isinstance(fire, list):
+            raise ValueError("火源数据格式不合法")
+        normalized_fire = set()
+        for item in fire:
+            if not isinstance(item, (list, tuple)) or len(item) < 2:
+                raise ValueError("火源坐标格式不合法")
+            gx, gy = item[:2]
+            if (isinstance(gx, bool) or isinstance(gy, bool)
+                    or not isinstance(gx, int) or not isinstance(gy, int)
+                    or not 0 <= int(gx) < self.maze.mw
+                    or not 0 <= int(gy) < self.maze.mh):
+                raise ValueError("火源坐标超出地图范围")
+            normalized_fire.add((int(gx), int(gy)))
+        heating = data.get("heating") or []
+        if not isinstance(heating, list):
+            raise ValueError("加热数据格式不合法")
+        normalized_heating = {}
+        for item in heating:
+            if not isinstance(item, (list, tuple)) or len(item) < 3:
+                raise ValueError("加热数据格式不合法")
+            gx, gy, value = item[:3]
+            if (isinstance(gx, bool) or isinstance(gy, bool)
+                    or not isinstance(gx, int) or not isinstance(gy, int)
+                    or not 0 <= int(gx) < self.maze.mw
+                    or not 0 <= int(gy) < self.maze.mh
+                    or not math.isfinite(float(value)) or float(value) < 0):
+                raise ValueError("加热数据超出有效范围")
+            normalized_heating[(int(gx), int(gy))] = float(value)
         seed = data.get("seed")
+        if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+            raise ValueError("种子必须是整数")
+
+        # Validate every field before archiving or mutating the live simulation.
+        self.archive_trial(reason="scenario_load")
+        self.npc_target = n
+        self.panic = panic
+        self.time_scale = scale
+        self.set_wind(wind_x, wind_y)
+        self.set_spawn_zone(zone)
+        self.burning = normalized_fire
+        self.heating = normalized_heating
         if seed is not None:
             self.set_seed(int(seed))
         self.reset_crowd(keep_humans=True, clear_fire=False)

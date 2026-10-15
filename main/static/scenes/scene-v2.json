@@ -1,0 +1,954 @@
+{
+  "schema": 2,
+  "id": "school",
+  "name": "Uncle Mugen's School Building",
+  "description": "按 web.glb 三角面复核后的临时比例导航。教室/走廊分界、折返楼梯和一层北侧出口来自模型几何；未做真实长度测量，不能标记为 verified。",
+  "model": {
+    "file": "uncle_mugens_school_building_web.glb",
+    "sha256": "fdc065dfd4ea60bb706cccdeee259afa0998b72673db04646ba96c1b28abec81",
+    "license": "CC-BY-4.0",
+    "mobile": {
+      "file": "uncle_mugens_school_building_mobile_balanced.glb",
+      "sha256": "85763a1ebcb820e91a4d004b3c49f9047c9a5b5e8dbaeddb1e1ef4cc5af8bca0",
+      "triangles": 1968809,
+      "render_cells": 2008,
+      "strategy": "spatial-chunks-locked-boundary-details",
+      "detail_error_native_units": 0.08
+    }
+  },
+  "transform": {
+    "scale_m_per_unit": 0.01,
+    "rotation": [
+      0,
+      0,
+      0
+    ],
+    "translation": [
+      16.78572021484,
+      0,
+      24.755012200000003
+    ]
+  },
+  "scale": {
+    "status": "provisional",
+    "reference_length_m": null,
+    "note": "临时比例。楼板上表面取模型实测 0.12/1.32/2.52，层高仅 1.2 个模型单位，尚未用真实长度标定，不能用于正式采集。"
+  },
+  "floors": [
+    {
+      "id": "floor-1",
+      "name": "一层",
+      "elevation_m": 0.12,
+      "walkable": [
+        {
+          "id": "floor-1-room-w",
+          "outer": [
+            [
+              4.82,
+              0.55
+            ],
+            [
+              9.32,
+              0.55
+            ],
+            [
+              9.32,
+              2.7
+            ],
+            [
+              4.82,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-1-room-e",
+          "outer": [
+            [
+              9.68,
+              0.55
+            ],
+            [
+              14.15,
+              0.55
+            ],
+            [
+              14.15,
+              2.7
+            ],
+            [
+              9.68,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-1-main",
+          "outer": [
+            [
+              2.35,
+              1.75
+            ],
+            [
+              4.78,
+              1.75
+            ],
+            [
+              4.78,
+              2.92
+            ],
+            [
+              14.15,
+              2.92
+            ],
+            [
+              14.15,
+              4.28
+            ],
+            [
+              4.65,
+              4.28
+            ],
+            [
+              4.65,
+              5.15
+            ],
+            [
+              0.9,
+              5.15
+            ],
+            [
+              0.9,
+              4.4
+            ],
+            [
+              2.35,
+              4.4
+            ]
+          ],
+          "holes": []
+        }
+      ],
+      "spawn_zones": [
+        {
+          "id": "floor-1-spawn-w",
+          "outer": [
+            [
+              5.3,
+              0.9
+            ],
+            [
+              8.6,
+              0.9
+            ],
+            [
+              8.6,
+              2.2
+            ],
+            [
+              5.3,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-1-spawn-e",
+          "outer": [
+            [
+              10.2,
+              0.9
+            ],
+            [
+              13.4,
+              0.9
+            ],
+            [
+              13.4,
+              2.2
+            ],
+            [
+              10.2,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-1-spawn-hall",
+          "outer": [
+            [
+              6.2,
+              3.2
+            ],
+            [
+              12.4,
+              3.2
+            ],
+            [
+              12.4,
+              4.0
+            ],
+            [
+              6.2,
+              4.0
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "floor-2",
+      "name": "二层",
+      "elevation_m": 1.32,
+      "walkable": [
+        {
+          "id": "floor-2-room-w",
+          "outer": [
+            [
+              4.82,
+              0.55
+            ],
+            [
+              9.32,
+              0.55
+            ],
+            [
+              9.32,
+              2.7
+            ],
+            [
+              4.82,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-2-room-e",
+          "outer": [
+            [
+              9.68,
+              0.55
+            ],
+            [
+              14.15,
+              0.55
+            ],
+            [
+              14.15,
+              2.7
+            ],
+            [
+              9.68,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-2-main",
+          "outer": [
+            [
+              2.35,
+              1.75
+            ],
+            [
+              4.78,
+              1.75
+            ],
+            [
+              4.78,
+              2.92
+            ],
+            [
+              14.15,
+              2.92
+            ],
+            [
+              14.15,
+              4.28
+            ],
+            [
+              2.35,
+              4.28
+            ]
+          ],
+          "holes": []
+        }
+      ],
+      "spawn_zones": [
+        {
+          "id": "floor-2-spawn-w",
+          "outer": [
+            [
+              5.3,
+              0.9
+            ],
+            [
+              8.6,
+              0.9
+            ],
+            [
+              8.6,
+              2.2
+            ],
+            [
+              5.3,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-2-spawn-e",
+          "outer": [
+            [
+              10.2,
+              0.9
+            ],
+            [
+              13.4,
+              0.9
+            ],
+            [
+              13.4,
+              2.2
+            ],
+            [
+              10.2,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-2-spawn-hall",
+          "outer": [
+            [
+              6.2,
+              3.2
+            ],
+            [
+              12.4,
+              3.2
+            ],
+            [
+              12.4,
+              4.0
+            ],
+            [
+              6.2,
+              4.0
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "floor-3",
+      "name": "三层",
+      "elevation_m": 2.52,
+      "walkable": [
+        {
+          "id": "floor-3-room-w",
+          "outer": [
+            [
+              4.82,
+              0.55
+            ],
+            [
+              9.32,
+              0.55
+            ],
+            [
+              9.32,
+              2.7
+            ],
+            [
+              4.82,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-3-room-e",
+          "outer": [
+            [
+              9.68,
+              0.55
+            ],
+            [
+              14.15,
+              0.55
+            ],
+            [
+              14.15,
+              2.7
+            ],
+            [
+              9.68,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-3-main",
+          "outer": [
+            [
+              2.35,
+              1.75
+            ],
+            [
+              4.78,
+              1.75
+            ],
+            [
+              4.78,
+              2.92
+            ],
+            [
+              14.15,
+              2.92
+            ],
+            [
+              14.15,
+              4.28
+            ],
+            [
+              2.35,
+              4.28
+            ]
+          ],
+          "holes": []
+        }
+      ],
+      "spawn_zones": [
+        {
+          "id": "floor-3-spawn-w",
+          "outer": [
+            [
+              5.3,
+              0.9
+            ],
+            [
+              8.6,
+              0.9
+            ],
+            [
+              8.6,
+              2.2
+            ],
+            [
+              5.3,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-3-spawn-e",
+          "outer": [
+            [
+              10.2,
+              0.9
+            ],
+            [
+              13.4,
+              0.9
+            ],
+            [
+              13.4,
+              2.2
+            ],
+            [
+              10.2,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-3-spawn-hall",
+          "outer": [
+            [
+              6.2,
+              3.2
+            ],
+            [
+              12.4,
+              3.2
+            ],
+            [
+              12.4,
+              4.0
+            ],
+            [
+              6.2,
+              4.0
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "stairs": [
+    {
+      "id": "stairs-1",
+      "from_floor": "floor-1",
+      "to_floor": "floor-2",
+      "bottom": [
+        3.98,
+        0.12,
+        2.7
+      ],
+      "top": [
+        2.78,
+        1.32,
+        2.72
+      ],
+      "path": [
+        [
+          3.98,
+          0.12,
+          2.7
+        ],
+        [
+          3.98,
+          0.34,
+          2.46
+        ],
+        [
+          3.98,
+          0.5,
+          2.2
+        ],
+        [
+          3.98,
+          0.65,
+          1.98
+        ],
+        [
+          3.2,
+          0.72,
+          1.3
+        ],
+        [
+          2.78,
+          0.94,
+          2.1
+        ],
+        [
+          2.78,
+          1.17,
+          2.5
+        ],
+        [
+          2.78,
+          1.32,
+          2.72
+        ]
+      ],
+      "width_m": 1.2,
+      "speed_factor": 0.85,
+      "capacity": 6
+    },
+    {
+      "id": "stairs-2",
+      "from_floor": "floor-2",
+      "to_floor": "floor-3",
+      "bottom": [
+        3.98,
+        1.32,
+        2.7
+      ],
+      "top": [
+        2.78,
+        2.52,
+        2.72
+      ],
+      "path": [
+        [
+          3.98,
+          1.32,
+          2.7
+        ],
+        [
+          3.98,
+          1.54,
+          2.46
+        ],
+        [
+          3.98,
+          1.7,
+          2.2
+        ],
+        [
+          3.98,
+          1.85,
+          1.98
+        ],
+        [
+          3.2,
+          1.92,
+          1.3
+        ],
+        [
+          2.78,
+          2.14,
+          2.1
+        ],
+        [
+          2.78,
+          2.37,
+          2.5
+        ],
+        [
+          2.78,
+          2.52,
+          2.72
+        ]
+      ],
+      "width_m": 1.2,
+      "speed_factor": 0.85,
+      "capacity": 6
+    }
+  ],
+  "exits": [
+    {
+      "id": "exit-main",
+      "name": "北侧主出口",
+      "floor": "floor-1",
+      "position": [
+        2.8,
+        0.12,
+        4.85
+      ],
+      "width_m": 1.6,
+      "kind": "exit"
+    }
+  ],
+  "fire_sources": [],
+  "doors": [
+    {
+      "id": "door-floor-1-room-w1",
+      "name": "一层西侧教室西门",
+      "floor": "floor-1",
+      "position": [
+        5.13,
+        0.12,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-1-room-w",
+      "to_region": "floor-1-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-1-room-w2",
+      "name": "一层西侧教室东门",
+      "floor": "floor-1",
+      "position": [
+        9.02,
+        0.12,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-1-room-w",
+      "to_region": "floor-1-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-1-room-e1",
+      "name": "一层东侧教室西门",
+      "floor": "floor-1",
+      "position": [
+        9.93,
+        0.12,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-1-room-e",
+      "to_region": "floor-1-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-1-room-e2",
+      "name": "一层东侧教室东门",
+      "floor": "floor-1",
+      "position": [
+        13.87,
+        0.12,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-1-room-e",
+      "to_region": "floor-1-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-2-room-w1",
+      "name": "二层西侧教室西门",
+      "floor": "floor-2",
+      "position": [
+        5.13,
+        1.32,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-2-room-w",
+      "to_region": "floor-2-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-2-room-w2",
+      "name": "二层西侧教室东门",
+      "floor": "floor-2",
+      "position": [
+        9.02,
+        1.32,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-2-room-w",
+      "to_region": "floor-2-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-2-room-e1",
+      "name": "二层东侧教室西门",
+      "floor": "floor-2",
+      "position": [
+        9.93,
+        1.32,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-2-room-e",
+      "to_region": "floor-2-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-2-room-e2",
+      "name": "二层东侧教室东门",
+      "floor": "floor-2",
+      "position": [
+        13.87,
+        1.32,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-2-room-e",
+      "to_region": "floor-2-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-3-room-w1",
+      "name": "三层西侧教室西门",
+      "floor": "floor-3",
+      "position": [
+        5.13,
+        2.52,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-3-room-w",
+      "to_region": "floor-3-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-3-room-w2",
+      "name": "三层西侧教室东门",
+      "floor": "floor-3",
+      "position": [
+        9.02,
+        2.52,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-3-room-w",
+      "to_region": "floor-3-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-3-room-e1",
+      "name": "三层东侧教室西门",
+      "floor": "floor-3",
+      "position": [
+        9.93,
+        2.52,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-3-room-e",
+      "to_region": "floor-3-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-3-room-e2",
+      "name": "三层东侧教室东门",
+      "floor": "floor-3",
+      "position": [
+        13.87,
+        2.52,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-3-room-e",
+      "to_region": "floor-3-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    }
+  ],
+  "navigation_review": {
+    "status": "needs-review",
+    "model_sha256": "fdc065dfd4ea60bb706cccdeee259afa0998b72673db04646ba96c1b28abec81",
+    "message": "已按模型三角面重标走廊、两间教室、四扇门、左侧折返楼梯和一层北侧出口。尺度仍是临时比例，左右两侧窄井未纳入可走区。",
+    "issues": [
+      "没有真实长度测量，scale.status 保持 provisional。",
+      "教室门洞实测宽度约 0.46 模型单位，碰撞半径已收到 0.15 才能通过，不代表真实肩宽。",
+      "西侧竖井开口窄于 0.40，东侧楼梯间尚未逐踏面闭合，这两处没有编进可走区。"
+    ]
+  }
+}
