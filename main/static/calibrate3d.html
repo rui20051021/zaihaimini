@@ -103,7 +103,7 @@ import {mergeGeometries} from '/static/utils/BufferGeometryUtils.js?v=20261026a'
 import {disposeModel} from '/static/utils/participant-motion.mjs?v=20261016';
 initSpatialUI('calibration'); import {GLTFLoader} from '/static/vendor/GLTFLoader.js'; import {MeshoptDecoder} from '/static/vendor/meshopt_decoder.module.js';
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
-const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight';
+const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, drawingFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight';
 const coarsePointer=matchMedia('(pointer:coarse)').matches, lowMemory=navigator.deviceMemory&&navigator.deviceMemory<=4;const renderer=new THREE.WebGLRenderer({canvas,antialias:!coarsePointer&&!lowMemory});renderer.setPixelRatio(Math.min(coarsePointer?1:1.25,devicePixelRatio));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.localClippingEnabled=true;const world=new THREE.Scene();world.background=new THREE.Color(0xeaf0f7);world.add(new THREE.HemisphereLight(0xf4f8ff,0x778aa2,2));const sun=new THREE.DirectionalLight(0xffffff,2.1);sun.position.set(20,35,12);world.add(sun);const camera=new THREE.PerspectiveCamera(42,1,.02,2000);let orbit={theta:.7,phi:1.05,dist:30,target:new THREE.Vector3(8,2,3)};let overlays=new THREE.Group();world.add(overlays);let drag=false,last=[0,0],dragAction='rotate',touchGesture=null,sceneBounds=null,modelGeneration=0;const activePointers=new Map();const renderBudget=new RenderBudget({maxPixelRatio:Math.min(coarsePointer?1:1.25,devicePixelRatio),minPixelRatio:coarsePointer?.65:.75});let renderAt=0,frameAt=0;const visualOrbit={theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.clone()};const orbitPosition=new THREE.Vector3();
 let touchTap=null,mouseTap=null;
 function resize(){renderer.setSize(canvas.clientWidth,canvas.clientHeight,false);camera.aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
@@ -235,11 +235,22 @@ function drawRing(r,color,y,options={}){
   const fill=new THREE.Mesh(fillGeometry,fillMaterial);fill.renderOrder=18;fill.userData.overlay=true;overlays.add(fill);
  }
 }
-function activeFloor(){return draft?.floors?.find(f=>f.id===activeFloorId)}function fillFloorOptions(select,keep){const prev=keep?select.value:'';select.innerHTML=(draft?.floors||[]).map(f=>`<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${escapeHtml(f.elevation_m)}m)</option>`).join('');if(prev&&(draft?.floors||[]).some(f=>f.id===prev))select.value=prev;}function rebuildFloorSelect(){const select=$('#floorSelect');fillFloorOptions(select,true);if(!activeFloorId&&draft?.floors?.length)activeFloorId=draft.floors[0].id;if(activeFloorId)select.value=activeFloorId;const editingFloor=activeFloor();if(editingFloor){$('#floorName').value=editingFloor.name||'';$('#floorElevation').value=editingFloor.elevation_m};const fromSel=$('#stairFromSelect'),toSel=$('#stairToSelect');fillFloorOptions(fromSel,true);fillFloorOptions(toSel,true);if(draft?.floors?.length){if(!fromSel.value)fromSel.value=draft.floors[0].id;if(!toSel.value||toSel.value===fromSel.value)toSel.value=(draft.floors.find(f=>f.id!==fromSel.value)||draft.floors[0]).id;}$('#floorList').innerHTML=(draft?.floors||[]).map(f=>`<div><b>${escapeHtml(f.name)}</b> · ${escapeHtml(f.elevation_m)}m · ${(f.walkable||[]).length} 个可走区 · ${(f.spawn_zones||[]).length} 个起始区</div>`).join('');refreshDoorRegions();paintFloorDock();}
+function activeFloor(){return draft?.floors?.find(f=>f.id===activeFloorId)}
+function drawingFloor(){return draft?.floors?.find(f=>f.id===drawingFloorId)||activeFloor()}
+function nearbyFloorWarning(floor){
+ if(!floor||!draft?.floors?.length)return '';
+ const elevation=Number(floor.elevation_m);if(!Number.isFinite(elevation))return '';
+ const neighbor=draft.floors.filter(other=>other.id!==floor.id&&Number.isFinite(Number(other.elevation_m))).sort((a,b)=>Math.abs(Number(a.elevation_m)-elevation)-Math.abs(Number(b.elevation_m)-elevation))[0];
+ if(!neighbor)return '';
+ const gap=Math.abs(Number(neighbor.elevation_m)-elevation);
+ return gap<.5?`与${neighbor.name||'相邻楼层'}仅相差 ${gap.toFixed(2)} m，绘制平面可能视觉贴近该层，请确认楼面标高。`:'';
+}
+function floorTargetLabel(floor){return floor?`目标：${floor.name||floor.id}（${Number(floor.elevation_m).toFixed(2)} m）`:''}
+function fillFloorOptions(select,keep){const prev=keep?select.value:'';select.innerHTML=(draft?.floors||[]).map(f=>`<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${escapeHtml(f.elevation_m)}m)</option>`).join('');if(prev&&(draft?.floors||[]).some(f=>f.id===prev))select.value=prev;}function rebuildFloorSelect(){const select=$('#floorSelect');fillFloorOptions(select,true);if(!activeFloorId&&draft?.floors?.length)activeFloorId=draft.floors[0].id;if(activeFloorId)select.value=activeFloorId;const editingFloor=activeFloor();if(editingFloor){$('#floorName').value=editingFloor.name||'';$('#floorElevation').value=editingFloor.elevation_m};const fromSel=$('#stairFromSelect'),toSel=$('#stairToSelect');fillFloorOptions(fromSel,true);fillFloorOptions(toSel,true);if(draft?.floors?.length){if(!fromSel.value)fromSel.value=draft.floors[0].id;if(!toSel.value||toSel.value===fromSel.value)toSel.value=(draft.floors.find(f=>f.id!==fromSel.value)||draft.floors[0]).id;}$('#floorList').innerHTML=(draft?.floors||[]).map(f=>`<div><b>${escapeHtml(f.name)}</b> · ${escapeHtml(f.elevation_m)}m · ${(f.walkable||[]).length} 个可走区 · ${(f.spawn_zones||[]).length} 个起始区</div>`).join('');refreshDoorRegions();paintFloorDock();}
 
-function pick(e){
+function pick(e,floorOverride=null){
  const rect=canvas.getBoundingClientRect();pointer.x=(e.clientX-rect.left)/rect.width*2-1;pointer.y=-(e.clientY-rect.top)/rect.height*2+1;raycaster.setFromCamera(pointer,camera);
- let f=activeFloor();
+ let f=floorOverride||activeFloor();
  // Annotation belongs to the selected floor plane, even when a roof or an
  // upper floor sits in front of it. Measurement still picks model surfaces.
  if(mode==='stair'){f=draft?.floors?.find(floor=>floor.id===$('#'+(stairPath.length?'stairToSelect':'stairFromSelect')).value)||f;if(stairPath.length&&stairPathMode==='segmented'){const from=draft?.floors?.find(floor=>floor.id===$('#stairFromSelect').value),to=draft?.floors?.find(floor=>floor.id===$('#stairToSelect').value);if(!from||!to)return null;const low=Math.min(Number(from.elevation_m),Number(to.elevation_m))-.02,high=Math.max(Number(from.elevation_m),Number(to.elevation_m))+.02;const hits=root?raycaster.intersectObject(root,true):[];const hit=hits.find(item=>item.point.y>=low&&item.point.y<=high&&(!cutawayEnabled||item.point.y<=clipTop+.001));return hit?[hit.point.x,hit.point.y,hit.point.z]:null}}
@@ -439,7 +450,7 @@ function refreshValidationChecklist(){
 function doorNormalFor(floor,fromId,toId){const a=floor?.walkable?.find(r=>r.id===fromId),b=floor?.walkable?.find(r=>r.id===toId);if(!a||!b)return [1,0];const ac=ringCenter(a.outer),bc=ringCenter(b.outer);const dx=bc[0]-ac[0],dz=bc[1]-ac[1],length=Math.hypot(dx,dz);return length>1e-6?[dx/length,dz/length]:[1,0]}
 function closeRing(){
  if(mode==='stair'){setStatus(stairPath.length?'继续点击上行踏面或平台拐点；最后点击目标楼层可走区内的顶端即可完成，撤销可逐点回退':'请先点击起点楼层可走区内的楼梯底端','warn');return}
- const f=activeFloor();if(!f){setStatus('请先选择楼层并绘制可走区','err');return}
+ const f=['floor','hole','spawn'].includes(mode)?drawingFloor():activeFloor();if(!f){setStatus('请先选择楼层并绘制可走区','err');return}
  if(!['floor','hole','spawn'].includes(mode)){setStatus('当前工具不生成轮廓。请先选择可走区、障碍或起始区','warn');return}
  if(!f.walkable?.length&&mode!=='floor'){setStatus('请先绘制一个可走区，再标记障碍或起始区','err');return}
  const ring=points.map(p=>[p[0],p[2]]),issue=drawingIssue(mode,ring,f);
@@ -450,7 +461,7 @@ function closeRing(){
  if(mode==='floor'){let index=f.walkable.length+1;while(f.walkable.some(r=>r.id===`${f.id}-region-${index}`))index++;f.walkable.push({id:`${f.id}-region-${index}`,outer:ring,holes:[]})}
  else if(mode==='hole'){const r=f.walkable.find(r=>r.id===holeRegionId);r.holes.push(ring)}
  else{f.spawn_zones=f.spawn_zones||[];let index=f.spawn_zones.length+1;while(f.spawn_zones.some(z=>z.id===`${f.id}-spawn-${index}`))index++;f.spawn_zones.push({id:`${f.id}-spawn-${index}`,outer:ring})}
- points=[];holeRegionId=null;mode='orbit';setModes();syncUndoButton();rebuildFloorSelect();redraw();markDirty();setStatus(`${label}已添加，可撤销`,'ok');
+ points=[];holeRegionId=null;drawingFloorId=null;mode='orbit';setModes();syncUndoButton();rebuildFloorSelect();redraw();markDirty();setStatus(`${label}已添加到 ${f.name||f.id}（${Number(f.elevation_m).toFixed(2)} m），可撤销`,'ok');
 }
 function syncToolState(){
  refreshActionState();
@@ -467,22 +478,24 @@ function syncToolState(){
 function chooseMode(next){
  if(!draft){setStatus('请先等待场景读取完成','err');return;}
  const step={edit:'floor',measure:'scale',floor:'floor',hole:'floor',spawn:'floor',stair:'paths',door:'paths',exit:'paths'}[next];if(step)showStep(step);
- mode=next;points=[];stairPath=[];holeRegionId=null;stairPathMode=$('#stairPathMode')?.value==='segmented'?'segmented':'straight';refreshStairDraftStatus();setModes();syncUndoButton();if(next!=='edit'&&next!=='orbit')deselect();
+ mode=next;points=[];stairPath=[];holeRegionId=null;drawingFloorId=['floor','hole','spawn'].includes(next)?activeFloorId:null;stairPathMode=$('#stairPathMode')?.value==='segmented'?'segmented':'straight';refreshStairDraftStatus();setModes();syncUndoButton();if(next!=='edit'&&next!=='orbit')deselect();
  if(['floor','hole','spawn'].includes(next)){cutawayEnabled=true;$('#floorCutaway').classList.add('active');$('#floorCutaway').setAttribute('aria-pressed','true');updateFloorCutaway();focusFloor({topDown:true});}
  const floor=activeFloor(),ready=(floor?.walkable||[]).length;
  const labels={orbit:'观察模式：左键旋转，右键或 Shift+左键平移，滚轮缩放；不会修改标注',edit:'编辑模式：点击标注对象以选择',measure:'测量比例：先点第一个端点，再点第二个端点',floor:'可走区：沿可通行边界逐点点击，至少 3 点后点“完成绘制”',hole:ready?'障碍：先点一个可走区内部确定所属区域，再圈出不可通行范围':'障碍：请先绘制可走区，再标记障碍',spawn:ready?'起始区：沿生成范围逐点点击，范围须完整位于可走区内':'起始区：请先绘制本楼层可走区',stair:stairPathMode==='segmented'?'多段楼梯：点击底端，再沿踏面或平台点击拐点，最后点击目标楼层内的顶端':'直线楼梯：先确定起止楼层，点击底端后再点击目标楼层内的顶端',door:(floor?.walkable||[]).length>1?'门：选择同层两侧区域，再点击门中心':'门：本层至少需要两个可走区',exit:'出口：在当前楼层出口位置点击'};
- setStatus(labels[next]||`当前工具：${next}`);
+ const target=['floor','hole','spawn'].includes(next)?drawingFloor():null;
+ setStatus(`${labels[next]||`当前工具：${next}`}${target?` · ${floorTargetLabel(target)}`:''}`);
+ const warning=nearbyFloorWarning(target);if(warning)setStatus(warning,'warn');
  refreshModeHud();
 }
 function modeStatus(){
  if(mode==='orbit')return '观察模式 · 左键旋转 · 右键/Shift 平移 · 滚轮缩放'
  if(mode==='measure')return measurePoints.length?`长度测量 · 已选 ${measurePoints.length}/2 点 · 继续点击第二个端点`:'长度测量 · 先点击第一个已知端点';
  if(['floor','hole','spawn'].includes(mode)){
-  const name={floor:'可走区',hole:'障碍孔洞',spawn:'起始区'}[mode];
+ const name={floor:'可走区',hole:'障碍孔洞',spawn:'起始区'}[mode],target=floorTargetLabel(drawingFloor());
   if(mode==='hole'&&!holeRegionId)return '障碍孔洞 · 先点击已有可走区内部，指定归属区域';
   const common=points.length?`已放置 ${points.length} 点`:'沿边界点击起点';
-  if(points.length<3)return `${name} · ${common} · 还需 ${3-points.length} 点 · 轻点落点 · 左键拖动旋转 · 右键/Shift 平移`;
-  return `${name} · ${common} · 已可完成，点“完成绘制”闭合轮廓 · 拖动可移动视角`;
+  if(points.length<3)return `${name} · ${target} · ${common} · 还需 ${3-points.length} 点 · 轻点落点 · 左键拖动旋转 · 右键/Shift 平移`;
+  return `${name} · ${target} · ${common} · 已可完成，点“完成绘制”闭合轮廓 · 拖动可移动视角`;
  }
  if(mode==='stair')return stairPath.length?`楼梯 · 已记录 ${stairPath.length} 点 · ${stairPathMode==='segmented'?'点击踏面拐点，最后点目标楼层顶端':'点击目标楼层内的顶端'} · 撤销可逐点回退`:'楼梯 · 先选起止楼层，再点击底端';
  if(mode==='edit')return '编辑模式 · 点击可走区、门、楼梯、出口或起始区';
@@ -503,11 +516,13 @@ function refreshModeHud(){
 }
 function annotateFromPointer(e){
  if(e.button!==0)return;
- const p=pick(e);if(!p)return;
+ const annotationFloor=['floor','hole','spawn'].includes(mode)?drawingFloor():activeFloor();
+ const p=pick(e,annotationFloor);if(!p)return;
  if(mode==='edit'){const object=findObjectAt(p);if(object){selectObject(object);setStatus(`已选择 ${object.label}，可聚焦或删除`)}else{deselect();setStatus('点击标注线、区域或连接点进行选择')}return}
  if(mode==='measure'){measurePoints.push(p);if(measurePoints.length>2)measurePoints=measurePoints.slice(-2);redraw();updateMeasure();syncUndoButton();return}
  if(mode==='floor'||mode==='hole'||mode==='spawn'){
-  if(mode==='hole'&&!holeRegionId){const owner=containingWalkable(activeFloor(),[p[0],p[2]]);if(!owner){setStatus('障碍必须从可走区内部开始。请点击已绘制的可走区','err');return}holeRegionId=owner.id;setStatus(`障碍将添加到 ${owner.id}，现在沿障碍边界逐点绘制`);return}
+  if(!annotationFloor){setStatus('请先选择要绘制的楼层','err');return}
+  if(mode==='hole'&&!holeRegionId){const owner=containingWalkable(annotationFloor,[p[0],p[2]]);if(!owner){setStatus('障碍必须从当前绘制楼层的可走区内部开始。请点击已绘制的可走区','err');return}holeRegionId=owner.id;setStatus(`障碍将添加到 ${annotationFloor.name||annotationFloor.id} / ${owner.id}，现在沿障碍边界逐点绘制`);return}
   points.push(p);redraw();syncUndoButton();return}
  if(mode==='stair'){
   const fromId=$('#stairFromSelect').value,toId=$('#stairToSelect').value,from=draft.floors.find(x=>x.id===fromId),to=draft.floors.find(x=>x.id===toId);
@@ -717,7 +732,7 @@ $('#updateFloor').onclick=updateActiveFloor;
 $('#floorName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#floorElevation').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#removeFloor').onclick=()=>{if(!activeFloorId||!draft)return;if(draft.floors.length<=1){setStatus('场景至少需要保留一层','warn');return}const f=activeFloor();pushUndo(`删除楼层 ${f?.name||activeFloorId}`);draft.floors=draft.floors.filter(x=>x.id!==activeFloorId);draft.stairs=(draft.stairs||[]).filter(s=>s.from_floor!==activeFloorId&&s.to_floor!==activeFloorId);draft.doors=(draft.doors||[]).filter(d=>d.floor!==activeFloorId);draft.exits=(draft.exits||[]).filter(e=>e.floor!==activeFloorId);activeFloorId=draft.floors[0]?.id||null;selected=null;rebuildFloorSelect();redraw();markDirty();setStatus('楼层已删除，可撤销','ok')};
-$('#floorSelect').onchange=e=>{activeFloorId=e.target.value;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
+$('#floorSelect').onchange=e=>{const nextId=e.target.value;if(drawingFloorId&&points.length&&nextId!==drawingFloorId){e.target.value=drawingFloorId;const locked=drawingFloor();setStatus(`当前正在${locked?.name||'当前楼层'}绘制，已锁定本轮轮廓归属。请先完成或撤销当前轮廓，再切换楼层`,'warn');return}activeFloorId=nextId;if(['floor','hole','spawn'].includes(mode))drawingFloorId=activeFloorId;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
 $('#viewHomeBtn').onclick=resetView;$('#orbitBtn').onclick=()=>chooseMode('orbit');$('#editBtn').onclick=()=>chooseMode('edit');$('#measureBtn').onclick=()=>chooseMode('measure');$('#floorBtn').onclick=()=>chooseMode('floor');$('#holeBtn').onclick=()=>chooseMode('hole');$('#doorBtn').onclick=()=>chooseMode('door');$('#stairBtn').onclick=()=>chooseMode('stair');$('#exitBtn').onclick=()=>chooseMode('exit');$('#spawnBtn').onclick=()=>chooseMode('spawn');$('#finishBtn').onclick=closeRing;$('#backBtn').onclick=()=>location.href='/';$('#reloadBtn').onclick=()=>loadModel();$('#tokenSave').onclick=()=>{token=$('#tokenInput').value.trim();localStorage.setItem('maze_admin_token',token);setStatus('管理令牌已保存','ok');loadDraft()};
 $('#useCalibrationModel').onclick=()=>useCalibrationModel();
 $('#uploadBtn').onclick=async()=>{const file=$('#fileInput').files[0];if(!file){setStatus('请选择 .glb 文件','err');return}try{setStatus('正在上传 GLB…');const r=await fetch(`/api/scenes/upload?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{...authHeaders()},body:file});const d=await r.json();if(!r.ok)throw new Error(d.detail||`上传失败 ${r.status}`);sceneId=d.id;history.replaceState(null,'',`/calibrate?scene=${sceneId}`);await loadDraft();setStatus('上传成功，已创建临时比例草稿','ok')}catch(e){setStatus(e.message,'err')}};
@@ -745,7 +760,7 @@ async function loadDraft(){
  try{
   const server=await api(`/api/scenes/${sceneId}/calibration`);
   serverBaseline=clone(server);draft=clone(server);savedSnapshot=snapshotDraft();draftKey=draftStorageKey();
-  activeFloorId=draft.floors?.[0]?.id||null;undoStack=[];selected=null;points=[];measurePoints=[];stairPath=[];refreshStairDraftStatus();mode='orbit';navPreview=null;smokePreview=null;
+  activeFloorId=draft.floors?.[0]?.id||null;drawingFloorId=null;undoStack=[];selected=null;points=[];measurePoints=[];stairPath=[];refreshStairDraftStatus();mode='orbit';navPreview=null;smokePreview=null;
   const stored=readStoredDraft();
   if(stored&&baseSnapshotFromStored(stored)===savedSnapshot&&JSON.stringify(stored.draft)!==savedSnapshot){
    const when=Number(stored.savedAt)?new Date(stored.savedAt).toLocaleString('zh-CN'):'此前';
@@ -870,14 +885,14 @@ function undo(){
  if(pending?.kind==='measure'){measurePoints.pop();redraw();updateMeasure();syncUndoButton();setStatus(measurePoints.length?'已撤销最后一个测量点':'已清除全部测量点','ok');return}
  const previous=undoStack.pop();if(!previous){syncUndoButton();setStatus('没有可撤销的操作','warn');return}
  const floor=previous.draft.floors?.find(f=>f.id===activeFloorId);if(!floor&&previous.draft.floors?.length)activeFloorId=previous.draft.floors[0].id;
- draft=previous.draft;navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();rebuildFloorSelect();redraw();markDirty();syncUndoButton();setStatus(`已撤销：${previous.label}`,'ok');
+ draft=previous.draft;drawingFloorId=null;navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();rebuildFloorSelect();redraw();markDirty();syncUndoButton();setStatus(`已撤销：${previous.label}`,'ok');
 }
 function discardUnsavedChanges(){
  if(!draft||!serverBaseline){setStatus('服务器基线尚未读取','warn');return}
  if(!dirty&&snapshotDraft()===savedSnapshot){setStatus('当前没有未保存修改','ok');return}
  if(!window.confirm('放弃所有未保存的标注修改，并恢复为服务器上的版本？\n此操作会清除浏览器暂存和撤销记录。'))return;
  draft=clone(serverBaseline);activeFloorId=draft.floors?.find(f=>f.id===activeFloorId)?.id||draft.floors?.[0]?.id||null;
- dirty=false;restoringDraft=false;undoStack=[];syncUndoButton();clearTimeout(autosaveTimer);clearStoredDraft();navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();rebuildFloorSelect();renderPreviewList(null);redraw();setDraftState('saved','已恢复服务器版本');refreshStepProgress();refreshSelectionBar();setStatus('已放弃未保存修改','ok');
+ dirty=false;restoringDraft=false;drawingFloorId=null;undoStack=[];syncUndoButton();clearTimeout(autosaveTimer);clearStoredDraft();navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();rebuildFloorSelect();renderPreviewList(null);redraw();setDraftState('saved','已恢复服务器版本');refreshStepProgress();refreshSelectionBar();setStatus('已放弃未保存修改','ok');
 }
 function setCalibrationActionTip(id,available,title,feature,reason=''){
  const button=$('#'+id);if(!button)return;
@@ -1079,7 +1094,8 @@ function paintFloorDock(){
   button.innerHTML=`<span class="floor-index">${String(index+1).padStart(2,'0')}</span><span class="floor-name">${escapeHtml(f.name)}</span><span class="floor-height">${Number.isFinite(height)?height.toFixed(2):'—'} m</span>`;
   button.dataset.tooltipKey='dynamicFloor';
   button.dataset.tooltipTitle=f.name||`第 ${index+1} 层`;
-  button.dataset.tooltipDescription=current?`当前编辑楼层，楼面标高 ${Number.isFinite(height)?height.toFixed(2):'—'} m。点击其他楼层可切换编辑目标。`:`点击切换到 ${f.name||`第 ${index+1} 层`}，楼面标高 ${Number.isFinite(height)?height.toFixed(2):'—'} m。三维视图、绘制范围与剖切会同步更新。`;
+  const heightWarning=nearbyFloorWarning(f);
+  button.dataset.tooltipDescription=(current?`当前编辑楼层，楼面标高 ${Number.isFinite(height)?height.toFixed(2):'—'} m。点击其他楼层可切换编辑目标。`:`点击切换到 ${f.name||`第 ${index+1} 层`}，楼面标高 ${Number.isFinite(height)?height.toFixed(2):'—'} m。三维视图、绘制范围与剖切会同步更新。`)+(heightWarning?` ${heightWarning}`:'');
   button.setAttribute('aria-label',`${f.name||`第 ${index+1} 层`}，标高 ${Number.isFinite(height)?height.toFixed(2):'—'} 米${current?'，当前编辑楼层':''}`);
   button.setAttribute('aria-pressed',String(current));
   button.classList.toggle('active',current);
@@ -1122,7 +1138,7 @@ function animate(now=performance.now()){
  const sin=Math.sin(visualOrbit.phi);orbitPosition.set(visualOrbit.target.x+visualOrbit.dist*sin*Math.sin(visualOrbit.theta),visualOrbit.target.y+visualOrbit.dist*Math.cos(visualOrbit.phi),visualOrbit.target.z+visualOrbit.dist*sin*Math.cos(visualOrbit.theta));camera.position.copy(orbitPosition);camera.lookAt(visualOrbit.target);renderer.render(world,camera);
  if(renderBudget.record(now)){renderer.setPixelRatio(renderBudget.pixelRatio);resize();}
 }
-window.calibrationUI={debug:()=>({ready:!!root,mode,orbit:{theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.toArray()},sceneBounds:sceneBounds?{min:sceneBounds.min.toArray(),max:sceneBounds.max.toArray()}:null,activeFloorId,cutawayEnabled,modelLoads:modelGeneration,measurePoints:measurePoints.length,points:points.length,stairPath:stairPath.map(point=>[...point]),stairPathMode,stairPathStatus:$('#stairDraftStatus')?.textContent||'',pendingUndo:pendingUndo()?.kind||null,floors:draft?.floors?.length,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,fps:renderBudget.fps,selected:selected?{type:selected.type,id:selected.id,label:selected.label}:null,dirty,restoringDraft,undoStack:undoStack.length,previewReachable:navPreview?.reachable??null,previewTotal:navPreview?.total??null,webModelMode,lastAutosaveAt,regions:objectCounts().regions,scaleStatus:draft?.scale?.status||null,annotationRecheck:draft?.annotation_recheck?.status||null,annotationSyncPending:draft?.annotation_recheck?.sync_pending??null,annotationScaleFactor:Number.isFinite(Number(draft?.annotation_recheck?.factor))?Number(draft.annotation_recheck.factor):null,annotationRecheckReason:draft?.annotation_recheck?.reason||'',navigationReview:draft?.navigation_review?.status||null,stairs:(draft?.stairs||[]).map(s=>({id:s.id,fromFloor:s.from_floor,toFloor:s.to_floor,pathPoints:s.path?.length||0})),scene:root?(()=>{let n=0;root.traverse(o=>{if(o.isMesh)n++});return {meshes:n}})():null})};
+window.calibrationUI={debug:()=>({ready:!!root,mode,orbit:{theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.toArray()},sceneBounds:sceneBounds?{min:sceneBounds.min.toArray(),max:sceneBounds.max.toArray()}:null,activeFloorId,drawingFloorId,cutawayEnabled,modelLoads:modelGeneration,measurePoints:measurePoints.length,points:points.length,stairPath:stairPath.map(point=>[...point]),stairPathMode,stairPathStatus:$('#stairDraftStatus')?.textContent||'',pendingUndo:pendingUndo()?.kind||null,floors:draft?.floors?.length,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,fps:renderBudget.fps,selected:selected?{type:selected.type,id:selected.id,label:selected.label}:null,dirty,restoringDraft,undoStack:undoStack.length,previewReachable:navPreview?.reachable??null,previewTotal:navPreview?.total??null,webModelMode,lastAutosaveAt,regions:objectCounts().regions,scaleStatus:draft?.scale?.status||null,annotationRecheck:draft?.annotation_recheck?.status||null,annotationSyncPending:draft?.annotation_recheck?.sync_pending??null,annotationScaleFactor:Number.isFinite(Number(draft?.annotation_recheck?.factor))?Number(draft.annotation_recheck.factor):null,annotationRecheckReason:draft?.annotation_recheck?.reason||'',navigationReview:draft?.navigation_review?.status||null,stairs:(draft?.stairs||[]).map(s=>({id:s.id,fromFloor:s.from_floor,toFloor:s.to_floor,pathPoints:s.path?.length||0})),scene:root?(()=>{let n=0;root.traverse(o=>{if(o.isMesh)n++});return {meshes:n}})():null})};
 $('#tokenInput').value=token;showStep('scale');loadDraft();animate();
 </script>
 </body></html>
