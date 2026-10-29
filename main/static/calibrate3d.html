@@ -6,7 +6,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23315dff'%20stroke-width='1.8'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M10%2012h4'/%3E%3Cpath%20d='M10%208h4'/%3E%3Cpath%20d='M14%2021v-3a2%202%200%200%200-4%200v3'/%3E%3Cpath%20d='M6%2010H4a2%202%200%200%200-2%202v7a2%202%200%200%200%202%202h16a2%202%200%200%200%202-2V9a2%202%200%200%200-2-2h-2'/%3E%3Cpath%20d='M6%2021V5a2%202%200%200%201%202-2h8a2%202%200%200%201%202%202v16'/%3E%3C/svg%3E">
 <script type="importmap">{"imports":{"three":"/static/vendor/three.module.js"}}</script>
 <link rel="modulepreload" href="/static/vendor/three.module.js"><link rel="modulepreload" href="/static/vendor/GLTFLoader.js"><link rel="modulepreload" href="/static/vendor/meshopt_decoder.module.js">
-<link rel="stylesheet" href="/static/spatial-ui.css?v=20261026a">
+<link rel="stylesheet" href="/static/spatial-ui.css?v=20261029a">
 <link rel="modulepreload" href="/static/utils/spatial-ui.mjs?v=20261026a"><link rel="modulepreload" href="/static/utils/lucide-icons.mjs?v=20261026a">
 <style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}button,input,select{font:inherit}.load-progress{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);padding:15px 18px;width:min(310px,80vw);font-size:12px}.bar{height:3px;background:#e4eaf4;border-radius:10px;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;width:35%;background:#315dff;transition:width .3s}.indeterminate .bar i{animation:loading 1.2s ease-in-out infinite}@keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(390%)}}</style>
 </head>
@@ -18,11 +18,12 @@
  <div id="loadProgress" class="load-progress"><span id="loadProgressText">正在加载建筑模型…</span><div class="bar"><i></i></div></div>
  <div id="floorDock" class="floor-dock" aria-label="选择编辑楼层"></div>
  <button id="floorCutaway" class="floor-cutaway" aria-pressed="false" aria-label="剖切当前楼层"><span data-lucide="scan-line"></span></button>
+ <button id="floorFocusBtn" class="floor-focus" type="button" aria-label="聚焦当前楼层" data-tooltip-title="聚焦当前楼层" data-tooltip-description="把当前楼层移动到画面中央；绘制工具下进入俯视局部视角，便于沿墙边逐点标注。"><span data-lucide="focus"></span></button>
  <div class="tools" role="toolbar" aria-label="场景标注工具">
   <button id="orbitBtn" class="active" type="button" data-lucide="orbit">观察</button><button id="editBtn" type="button" data-lucide="mouse-pointer-2">编辑</button><button id="measureBtn" type="button" data-lucide="ruler">测量</button><button id="floorBtn" type="button" data-lucide="layers">可走区</button><button id="holeBtn" type="button" data-lucide="circle-stop">障碍</button><button id="stairBtn" type="button" data-lucide="route">楼梯</button><button id="doorBtn" type="button" data-lucide="door-open">门</button><button id="exitBtn" type="button" data-lucide="log-out">出口</button><button id="spawnBtn" type="button" data-lucide="map-pin">起始区</button><button id="finishBtn" type="button" data-lucide="check">完成绘制</button>
  </div>
  <div id="modeHud" class="mode-hud" role="status" aria-live="polite"><span class="mode-hud-mark"></span><span id="modeHudText">观察模式 · 左键旋转 · 右键/Shift 平移 · 滚轮缩放</span><span class="mode-hud-keys">Esc 退出 · Ctrl+Z 撤销</span></div>
- <div class="hint">左键旋转 · 右键/Shift 平移 · 滚轮缩放<br>双击表面聚焦 · Home 恢复全局</div>
+ <div class="hint">左键旋转 · 右键/Shift 平移 · 滚轮缩放<br>绘制时：右键/Shift 平移 · 双指平移缩放 · 双击表面聚焦</div>
 </main></div>
 <header class="spatial-header">
  <div class="spatial-brand"><span data-lucide="building-2"></span><div><strong>学校场景 / 空间实验</strong><small id="modelLabel">SCENE / CALIBRATION</small></div></div>
@@ -104,6 +105,7 @@ initSpatialUI('calibration'); import {GLTFLoader} from '/static/vendor/GLTFLoade
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
 const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight';
 const coarsePointer=matchMedia('(pointer:coarse)').matches, lowMemory=navigator.deviceMemory&&navigator.deviceMemory<=4;const renderer=new THREE.WebGLRenderer({canvas,antialias:!coarsePointer&&!lowMemory});renderer.setPixelRatio(Math.min(coarsePointer?1:1.25,devicePixelRatio));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.localClippingEnabled=true;const world=new THREE.Scene();world.background=new THREE.Color(0xeaf0f7);world.add(new THREE.HemisphereLight(0xf4f8ff,0x778aa2,2));const sun=new THREE.DirectionalLight(0xffffff,2.1);sun.position.set(20,35,12);world.add(sun);const camera=new THREE.PerspectiveCamera(42,1,.02,2000);let orbit={theta:.7,phi:1.05,dist:30,target:new THREE.Vector3(8,2,3)};let overlays=new THREE.Group();world.add(overlays);let drag=false,last=[0,0],dragAction='rotate',touchGesture=null,sceneBounds=null,modelGeneration=0;const activePointers=new Map();const renderBudget=new RenderBudget({maxPixelRatio:Math.min(coarsePointer?1:1.25,devicePixelRatio),minPixelRatio:coarsePointer?.65:.75});let renderAt=0,frameAt=0;const visualOrbit={theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.clone()};const orbitPosition=new THREE.Vector3();
+let touchTap=null;
 function resize(){renderer.setSize(canvas.clientWidth,canvas.clientHeight,false);camera.aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
 function authHeaders(json=false){const h={};if(json)h['Content-Type']='application/json';if(token)h['X-Maze-Admin-Token']=token;return h}
 function setStatus(t,kind=''){const e=$('#status');e.textContent=t;e.dataset.kind=kind;e.style.color=kind==='err'?'#b4483f':kind==='ok'?'#28725a':kind==='warn'?'#8a6425':'#65758c'}
@@ -173,18 +175,39 @@ function fit(){
  const halfFov=Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*Math.min(1,camera.aspect));
  orbit.dist=Math.max(8,size.length()*.56/Math.sin(halfFov));
 }
+function focusFloor({topDown=false,close=false}={}){
+ if(!root||!draft)return;
+ const floor=activeFloor();if(!floor)return;
+ const modelBox=new THREE.Box3().setFromObject(root),y=Number(floor.elevation_m)||0;
+ const regions=(floor.walkable||[]).flatMap(r=>r.outer||[]);
+ const floorBox=new THREE.Box3();
+ if(regions.length){for(const p of regions)floorBox.expandByPoint(new THREE.Vector3(p[0],y,p[1]));const pad=Math.max(1.5,Math.max(floorBox.getSize(new THREE.Vector3()).x,floorBox.getSize(new THREE.Vector3()).z)*.08);floorBox.expandByScalar(pad)}
+ else floorBox.set(new THREE.Vector3(modelBox.min.x,y,modelBox.min.z),new THREE.Vector3(modelBox.max.x,y,modelBox.max.z));
+ const center=floorBox.getCenter(new THREE.Vector3());orbit.target.set(center.x,y,center.z);
+ const size=floorBox.getSize(new THREE.Vector3()),modelSize=modelBox.getSize(new THREE.Vector3());
+ orbit.dist=clamp(Math.max(5,Math.max(size.x,size.z)*1.18),5,Math.max(12,modelSize.length()));
+ orbit.phi=topDown?.16:close?.64:.92;if(topDown)orbit.theta=0;clampOrbitTarget();
+ if(cutawayEnabled)updateFloorCutaway();
+ setStatus(`已聚焦${floor.name||'当前楼层'} · ${topDown?'俯视绘制':'局部核对'} · 可右键或 Shift+左键平移`,'ok');
+}
 function redraw(){
  paintFloorDock();$('#finishBtn').classList.toggle('is-drawing',points.length>0);
  while(overlays.children.length){const old=overlays.children[0];overlays.remove(old);disposeModel(old);}
  const colors={floor:0x45d7a1,hole:0xff7f78,stair:0xffc857,exit:0x5db5ff,spawn:0xb584ff};
- for(const f of draft?.floors||[]){for(const r of f.walkable||[]){drawRing(r.outer,colors.floor,f.elevation_m);for(const h of r.holes||[])drawRing(h,colors.hole,f.elevation_m+.02)}}
+ for(const f of draft?.floors||[]){
+  const active=f.id===activeFloorId;
+  for(const r of f.walkable||[]){
+   drawRing(r.outer,active?colors.floor:0x9aaabd,f.elevation_m,{fill:active,opacity:active?.22:.05,linewidth:active?2.4:1.1,holes:r.holes||[]});
+   for(const h of r.holes||[])drawRing(h,colors.hole,f.elevation_m+.035,{fill:active,opacity:active?.16:.035,linewidth:active?2.2:1});
+  }
+ }
  for(const s of draft?.stairs||[]){drawStairPath(s.path?.length>=2?s.path:[s.bottom,s.top],colors.stair,.08,false)}
  if(stairPath.length){drawStairPath(stairPath,0x315dff,.04,true)}
  for(const d of draft?.doors||[])point(d.position,0xffd34e,.14);
  for(const e of draft?.exits||[])point(e.position,colors.exit,.16);
  for(const f of draft?.floors||[])for(const z of f.spawn_zones||[])drawRing(z.outer,colors.spawn,f.elevation_m+.04);
  for(const p of measurePoints)point(p,0xffffff,.1);if(measurePoints.length===2)line(measurePoints[0],measurePoints[1],0xffffff,.04);
- if(points.length>1){for(let i=1;i<points.length;i++)line(points[i-1],points[i],colors.floor,.05)}
+ if(points.length){for(let i=0;i<points.length;i++){point(points[i],i===0?0x315dff:0x45d7a1,.11);if(i)line(points[i-1],points[i],0x315dff,.07)}}
  for(const path of navPreview?.paths||[]){const c=path.reachable?0x4dff9e:0xff5d5d;for(let i=1;i<path.points.length;i++)line(path.points[i-1],path.points[i],c,.05);if(path.points.length)point(path.points[0],c,.09);}
  if(selected?.anchor){
   const c=0xffa62b,anchor=selected.anchor;
@@ -197,7 +220,21 @@ function redraw(){
 }
 function drawStairPath(path,color,width,markers){if(!Array.isArray(path)||!path.length)return;for(let i=1;i<path.length;i++)line(path[i-1],path[i],color,width);if(markers)for(let i=0;i<path.length;i++)point(path[i],i===0?0x315dff:i===path.length-1?0xffa62b:color,i===0||i===path.length-1?.13:.08)}
 function line(a,b,color,width){const geo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a),new THREE.Vector3(...b)]);const m=new THREE.LineBasicMaterial({color,linewidth:width});overlays.add(new THREE.Line(geo,m))}function point(p,color,size){const m=new THREE.Mesh(new THREE.SphereGeometry(size,10,8),new THREE.MeshBasicMaterial({color}));m.position.set(...p);overlays.add(m)}function lineSpheres(a,b,color,v){const n=4;for(let i=0;i<=n;i++){const t=i/n;const m=new THREE.Mesh(new THREE.SphereGeometry(.22+.25*v,8,6),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.15+.5*v}));m.position.set(a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t);overlays.add(m)}}
-function drawRing(r,color,y){const pts=r.map(p=>new THREE.Vector3(p[0],y+.03,p[1]));pts.push(pts[0]);const g=new THREE.BufferGeometry().setFromPoints(pts);overlays.add(new THREE.Line(g,new THREE.LineBasicMaterial({color}))) }
+function drawRing(r,color,y,options={}){
+ if(!Array.isArray(r)||r.length<3)return;
+ const opts={fill:false,opacity:.16,linewidth:1.5,holes:[],...options};
+ const pts=r.map(p=>new THREE.Vector3(p[0],y+.045,p[1]));pts.push(pts[0]);
+ const g=new THREE.BufferGeometry().setFromPoints(pts);
+ const material=new THREE.LineBasicMaterial({color,transparent:opts.opacity<1,opacity:Math.min(1,Math.max(.1,opts.opacity<.1?1:opts.opacity+.35)),depthTest:false,depthWrite:false});
+ const outline=new THREE.Line(g,material);outline.renderOrder=20;outline.userData.overlay=true;overlays.add(outline);
+ if(opts.fill){
+  const shape=new THREE.Shape();r.forEach((p,index)=>index?shape.lineTo(p[0],p[1]):shape.moveTo(p[0],p[1]));
+  for(const hole of opts.holes||[]){if(!Array.isArray(hole)||hole.length<3)continue;const path=new THREE.Path();hole.forEach((p,index)=>index?path.lineTo(p[0],p[1]):path.moveTo(p[0],p[1]));shape.holes.push(path)}
+  const fillGeometry=new THREE.ShapeGeometry(shape);fillGeometry.rotateX(Math.PI/2);fillGeometry.translate(0,y+.035,0);
+  const fillMaterial=new THREE.MeshBasicMaterial({color,transparent:true,opacity:Math.min(.34,Math.max(.035,opts.opacity)),side:THREE.DoubleSide,depthTest:false,depthWrite:false});
+  const fill=new THREE.Mesh(fillGeometry,fillMaterial);fill.renderOrder=18;fill.userData.overlay=true;overlays.add(fill);
+ }
+}
 function activeFloor(){return draft?.floors?.find(f=>f.id===activeFloorId)}function fillFloorOptions(select,keep){const prev=keep?select.value:'';select.innerHTML=(draft?.floors||[]).map(f=>`<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${escapeHtml(f.elevation_m)}m)</option>`).join('');if(prev&&(draft?.floors||[]).some(f=>f.id===prev))select.value=prev;}function rebuildFloorSelect(){const select=$('#floorSelect');fillFloorOptions(select,true);if(!activeFloorId&&draft?.floors?.length)activeFloorId=draft.floors[0].id;if(activeFloorId)select.value=activeFloorId;const editingFloor=activeFloor();if(editingFloor){$('#floorName').value=editingFloor.name||'';$('#floorElevation').value=editingFloor.elevation_m};const fromSel=$('#stairFromSelect'),toSel=$('#stairToSelect');fillFloorOptions(fromSel,true);fillFloorOptions(toSel,true);if(draft?.floors?.length){if(!fromSel.value)fromSel.value=draft.floors[0].id;if(!toSel.value||toSel.value===fromSel.value)toSel.value=(draft.floors.find(f=>f.id!==fromSel.value)||draft.floors[0]).id;}$('#floorList').innerHTML=(draft?.floors||[]).map(f=>`<div><b>${escapeHtml(f.name)}</b> · ${escapeHtml(f.elevation_m)}m · ${(f.walkable||[]).length} 个可走区 · ${(f.spawn_zones||[]).length} 个起始区</div>`).join('');refreshDoorRegions();paintFloorDock();}
 
 function pick(e){
@@ -431,6 +468,7 @@ function chooseMode(next){
  if(!draft){setStatus('请先等待场景读取完成','err');return;}
  const step={edit:'floor',measure:'scale',floor:'floor',hole:'floor',spawn:'floor',stair:'paths',door:'paths',exit:'paths'}[next];if(step)showStep(step);
  mode=next;points=[];stairPath=[];holeRegionId=null;stairPathMode=$('#stairPathMode')?.value==='segmented'?'segmented':'straight';refreshStairDraftStatus();setModes();syncUndoButton();if(next!=='edit'&&next!=='orbit')deselect();
+ if(['floor','hole','spawn'].includes(next)){cutawayEnabled=true;$('#floorCutaway').classList.add('active');$('#floorCutaway').setAttribute('aria-pressed','true');updateFloorCutaway();focusFloor({topDown:true});}
  const floor=activeFloor(),ready=(floor?.walkable||[]).length;
  const labels={orbit:'观察模式：左键旋转，右键或 Shift+左键平移，滚轮缩放；不会修改标注',edit:'编辑模式：点击标注对象以选择',measure:'测量比例：先点第一个端点，再点第二个端点',floor:'可走区：沿可通行边界逐点点击，至少 3 点后点“完成绘制”',hole:ready?'障碍：先点一个可走区内部确定所属区域，再圈出不可通行范围':'障碍：请先绘制可走区，再标记障碍',spawn:ready?'起始区：沿生成范围逐点点击，范围须完整位于可走区内':'起始区：请先绘制本楼层可走区',stair:stairPathMode==='segmented'?'多段楼梯：点击底端，再沿踏面或平台点击拐点，最后点击目标楼层内的顶端':'直线楼梯：先确定起止楼层，点击底端后再点击目标楼层内的顶端',door:(floor?.walkable||[]).length>1?'门：选择同层两侧区域，再点击门中心':'门：本层至少需要两个可走区',exit:'出口：在当前楼层出口位置点击'};
  setStatus(labels[next]||`当前工具：${next}`);
@@ -443,8 +481,8 @@ function modeStatus(){
   const name={floor:'可走区',hole:'障碍孔洞',spawn:'起始区'}[mode];
   if(mode==='hole'&&!holeRegionId)return '障碍孔洞 · 先点击已有可走区内部，指定归属区域';
   const common=points.length?`已放置 ${points.length} 点`:'沿边界点击起点';
-  if(points.length<3)return `${name} · ${common} · 还需 ${3-points.length} 点 · 撤销键可逐点回退`;
-  return `${name} · ${common} · 已可完成，点“完成绘制”闭合轮廓`;
+  if(points.length<3)return `${name} · ${common} · 还需 ${3-points.length} 点 · 右键/Shift 平移 · 撤销可逐点回退`;
+  return `${name} · ${common} · 已可完成，点“完成绘制”闭合轮廓 · 右键/Shift 平移`;
  }
  if(mode==='stair')return stairPath.length?`楼梯 · 已记录 ${stairPath.length} 点 · ${stairPathMode==='segmented'?'点击踏面拐点，最后点目标楼层顶端':'点击目标楼层内的顶端'} · 撤销可逐点回退`:'楼梯 · 先选起止楼层，再点击底端';
  if(mode==='edit')return '编辑模式 · 点击可走区、门、楼梯、出口或起始区';
@@ -563,15 +601,16 @@ canvas.addEventListener('pointerdown',e=>{
  activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY,type:e.pointerType});
  if(e.pointerType==='touch'){
   const pair=touchPair();
-  if(mode==='orbit'&&pair){
-   endCameraDrag();touchGesture=pair;setCanvasGesture('pan');
+  if(pair){
+   touchTap=null;endCameraDrag();touchGesture=pair;setCanvasGesture('pan');
    e.preventDefault();return;
   }
-  if(mode!=='orbit'){annotateFromPointer(e);return}
+  if(mode!=='orbit'){touchTap={id:e.pointerId,x:e.clientX,y:e.clientY};return}
   beginCameraDrag(e,'rotate');e.preventDefault();return;
  }
- if(mode!=='orbit'){if(e.button===0&&!e.shiftKey)annotateFromPointer(e);return}
  const wantsPan=e.button===1||e.button===2||(e.button===0&&e.shiftKey);
+ if(wantsPan){beginCameraDrag(e,'pan');e.preventDefault();return}
+ if(mode!=='orbit'){if(e.button===0)annotateFromPointer(e);return}
  beginCameraDrag(e,wantsPan?'pan':'rotate');
  e.preventDefault();
 });
@@ -579,15 +618,16 @@ canvas.addEventListener('pointermove',e=>{
  if(!activePointers.has(e.pointerId))return;
  activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY,type:e.pointerType});
  if(e.pointerType==='touch'){
-  if(mode!=='orbit')return;
   const pair=touchPair();
   if(pair){
+   touchTap=null;
    if(touchGesture){
     orbit.dist=clamp(orbit.dist*touchGesture.span/pair.span,2,500);
     panByPixels(pair.mid.x-touchGesture.mid.x,pair.mid.y-touchGesture.mid.y);
    }
    touchGesture=pair;setCanvasGesture('pan');e.preventDefault();return;
   }
+  if(touchTap&&touchTap.id===e.pointerId&&Math.hypot(e.clientX-touchTap.x,e.clientY-touchTap.y)>8){touchTap=null;beginCameraDrag(e,'pan');}
   if(!drag)return;
  }
  if(!drag)return;
@@ -598,10 +638,14 @@ canvas.addEventListener('pointermove',e=>{
 },{passive:false});
 function releaseCanvasPointer(e){
  const wasTouch=e.pointerType==='touch';
+ const shouldAnnotate=wasTouch&&e.type==='pointerup'&&mode!=='orbit'&&touchTap?.id===e.pointerId;
+ touchTap=null;
  activePointers.delete(e.pointerId);touchGesture=null;
+ if(shouldAnnotate){annotateFromPointer(e);return}
  const remaining=[...activePointers.values()].filter(item=>item.type==='touch');
- if(mode==='orbit'&&wasTouch&&remaining.length===1){
-  const p=remaining[0];drag=true;dragAction='rotate';last=[p.x,p.y];setCanvasGesture('rotate');
+ if(wasTouch&&remaining.length===1){
+  if(mode==='orbit'){const p=remaining[0];drag=true;dragAction='rotate';last=[p.x,p.y];setCanvasGesture('rotate')}
+  else endCameraDrag();
  }else if(!wasTouch||remaining.length===0)endCameraDrag();
 }
 canvas.addEventListener('pointerup',releaseCanvasPointer);
@@ -670,7 +714,7 @@ $('#updateFloor').onclick=updateActiveFloor;
 $('#floorName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#floorElevation').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#removeFloor').onclick=()=>{if(!activeFloorId||!draft)return;if(draft.floors.length<=1){setStatus('场景至少需要保留一层','warn');return}const f=activeFloor();pushUndo(`删除楼层 ${f?.name||activeFloorId}`);draft.floors=draft.floors.filter(x=>x.id!==activeFloorId);draft.stairs=(draft.stairs||[]).filter(s=>s.from_floor!==activeFloorId&&s.to_floor!==activeFloorId);draft.doors=(draft.doors||[]).filter(d=>d.floor!==activeFloorId);draft.exits=(draft.exits||[]).filter(e=>e.floor!==activeFloorId);activeFloorId=draft.floors[0]?.id||null;selected=null;rebuildFloorSelect();redraw();markDirty();setStatus('楼层已删除，可撤销','ok')};
-$('#floorSelect').onchange=e=>{activeFloorId=e.target.value;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();};
+$('#floorSelect').onchange=e=>{activeFloorId=e.target.value;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
 $('#viewHomeBtn').onclick=resetView;$('#orbitBtn').onclick=()=>chooseMode('orbit');$('#editBtn').onclick=()=>chooseMode('edit');$('#measureBtn').onclick=()=>chooseMode('measure');$('#floorBtn').onclick=()=>chooseMode('floor');$('#holeBtn').onclick=()=>chooseMode('hole');$('#doorBtn').onclick=()=>chooseMode('door');$('#stairBtn').onclick=()=>chooseMode('stair');$('#exitBtn').onclick=()=>chooseMode('exit');$('#spawnBtn').onclick=()=>chooseMode('spawn');$('#finishBtn').onclick=closeRing;$('#backBtn').onclick=()=>location.href='/';$('#reloadBtn').onclick=()=>loadModel();$('#tokenSave').onclick=()=>{token=$('#tokenInput').value.trim();localStorage.setItem('maze_admin_token',token);setStatus('管理令牌已保存','ok');loadDraft()};
 $('#useCalibrationModel').onclick=()=>useCalibrationModel();
 $('#uploadBtn').onclick=async()=>{const file=$('#fileInput').files[0];if(!file){setStatus('请选择 .glb 文件','err');return}try{setStatus('正在上传 GLB…');const r=await fetch(`/api/scenes/upload?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{...authHeaders()},body:file});const d=await r.json();if(!r.ok)throw new Error(d.detail||`上传失败 ${r.status}`);sceneId=d.id;history.replaceState(null,'',`/calibrate?scene=${sceneId}`);await loadDraft();setStatus('上传成功，已创建临时比例草稿','ok')}catch(e){setStatus(e.message,'err')}};
@@ -1058,6 +1102,7 @@ function updateFloorCutaway(){
  if(cutawayEnabled)orbit.target.y=(f.elevation_m+clipTop)/2;
 }
 $('#floorCutaway').onclick=()=>{cutawayEnabled=!cutawayEnabled;$('#floorCutaway').classList.toggle('active',cutawayEnabled);$('#floorCutaway').setAttribute('aria-pressed',String(cutawayEnabled));if(!cutawayEnabled&&root)fit();updateFloorCutaway();};
+$('#floorFocusBtn').onclick=()=>focusFloor({topDown:['floor','hole','spawn'].includes(mode)});
 document.addEventListener('keydown',event=>{
  const editing=event.target.closest('input,select,textarea,[contenteditable="true"]');
  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'&&!editing){event.preventDefault();undo();return}
