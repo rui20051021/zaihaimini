@@ -105,7 +105,7 @@ initSpatialUI('calibration'); import {GLTFLoader} from '/static/vendor/GLTFLoade
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
 const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight';
 const coarsePointer=matchMedia('(pointer:coarse)').matches, lowMemory=navigator.deviceMemory&&navigator.deviceMemory<=4;const renderer=new THREE.WebGLRenderer({canvas,antialias:!coarsePointer&&!lowMemory});renderer.setPixelRatio(Math.min(coarsePointer?1:1.25,devicePixelRatio));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.localClippingEnabled=true;const world=new THREE.Scene();world.background=new THREE.Color(0xeaf0f7);world.add(new THREE.HemisphereLight(0xf4f8ff,0x778aa2,2));const sun=new THREE.DirectionalLight(0xffffff,2.1);sun.position.set(20,35,12);world.add(sun);const camera=new THREE.PerspectiveCamera(42,1,.02,2000);let orbit={theta:.7,phi:1.05,dist:30,target:new THREE.Vector3(8,2,3)};let overlays=new THREE.Group();world.add(overlays);let drag=false,last=[0,0],dragAction='rotate',touchGesture=null,sceneBounds=null,modelGeneration=0;const activePointers=new Map();const renderBudget=new RenderBudget({maxPixelRatio:Math.min(coarsePointer?1:1.25,devicePixelRatio),minPixelRatio:coarsePointer?.65:.75});let renderAt=0,frameAt=0;const visualOrbit={theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.clone()};const orbitPosition=new THREE.Vector3();
-let touchTap=null;
+let touchTap=null,mouseTap=null;
 function resize(){renderer.setSize(canvas.clientWidth,canvas.clientHeight,false);camera.aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
 function authHeaders(json=false){const h={};if(json)h['Content-Type']='application/json';if(token)h['X-Maze-Admin-Token']=token;return h}
 function setStatus(t,kind=''){const e=$('#status');e.textContent=t;e.dataset.kind=kind;e.style.color=kind==='err'?'#b4483f':kind==='ok'?'#28725a':kind==='warn'?'#8a6425':'#65758c'}
@@ -481,8 +481,8 @@ function modeStatus(){
   const name={floor:'可走区',hole:'障碍孔洞',spawn:'起始区'}[mode];
   if(mode==='hole'&&!holeRegionId)return '障碍孔洞 · 先点击已有可走区内部，指定归属区域';
   const common=points.length?`已放置 ${points.length} 点`:'沿边界点击起点';
-  if(points.length<3)return `${name} · ${common} · 还需 ${3-points.length} 点 · 右键/Shift 平移 · 撤销可逐点回退`;
-  return `${name} · ${common} · 已可完成，点“完成绘制”闭合轮廓 · 右键/Shift 平移`;
+  if(points.length<3)return `${name} · ${common} · 还需 ${3-points.length} 点 · 轻点落点 · 左键拖动旋转 · 右键/Shift 平移`;
+  return `${name} · ${common} · 已可完成，点“完成绘制”闭合轮廓 · 拖动可移动视角`;
  }
  if(mode==='stair')return stairPath.length?`楼梯 · 已记录 ${stairPath.length} 点 · ${stairPathMode==='segmented'?'点击踏面拐点，最后点目标楼层顶端':'点击目标楼层内的顶端'} · 撤销可逐点回退`:'楼梯 · 先选起止楼层，再点击底端';
  if(mode==='edit')return '编辑模式 · 点击可走区、门、楼梯、出口或起始区';
@@ -610,7 +610,7 @@ canvas.addEventListener('pointerdown',e=>{
  }
  const wantsPan=e.button===1||e.button===2||(e.button===0&&e.shiftKey);
  if(wantsPan){beginCameraDrag(e,'pan');e.preventDefault();return}
- if(mode!=='orbit'){if(e.button===0)annotateFromPointer(e);return}
+ if(mode!=='orbit'){if(e.button===0)mouseTap={id:e.pointerId,x:e.clientX,y:e.clientY};return}
  beginCameraDrag(e,wantsPan?'pan':'rotate');
  e.preventDefault();
 });
@@ -630,6 +630,7 @@ canvas.addEventListener('pointermove',e=>{
   if(touchTap&&touchTap.id===e.pointerId&&Math.hypot(e.clientX-touchTap.x,e.clientY-touchTap.y)>8){touchTap=null;beginCameraDrag(e,'pan');}
   if(!drag)return;
  }
+ if(mouseTap&&mouseTap.id===e.pointerId&&Math.hypot(e.clientX-mouseTap.x,e.clientY-mouseTap.y)>8){mouseTap=null;beginCameraDrag(e,'rotate');}
  if(!drag)return;
  const dx=e.clientX-last[0],dy=e.clientY-last[1];last=[e.clientX,e.clientY];
  if(dragAction==='pan')panByPixels(dx,dy);
@@ -639,9 +640,11 @@ canvas.addEventListener('pointermove',e=>{
 function releaseCanvasPointer(e){
  const wasTouch=e.pointerType==='touch';
  const shouldAnnotate=wasTouch&&e.type==='pointerup'&&mode!=='orbit'&&touchTap?.id===e.pointerId;
+ const shouldMouseAnnotate=!wasTouch&&e.type==='pointerup'&&mode!=='orbit'&&mouseTap?.id===e.pointerId;
  touchTap=null;
+ mouseTap=null;
  activePointers.delete(e.pointerId);touchGesture=null;
- if(shouldAnnotate){annotateFromPointer(e);return}
+ if(shouldAnnotate||shouldMouseAnnotate){annotateFromPointer(e);return}
  const remaining=[...activePointers.values()].filter(item=>item.type==='touch');
  if(wasTouch&&remaining.length===1){
   if(mode==='orbit'){const p=remaining[0];drag=true;dragAction='rotate';last=[p.x,p.y];setCanvasGesture('rotate')}
