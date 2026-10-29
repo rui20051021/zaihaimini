@@ -1,7 +1,8 @@
 // Visual interpolation is read-only: never extrapolate through authoritative walls.
 export class SnapshotMotion {
-  constructor(delayMs = 80) {
+  constructor(delayMs = 80, {maxDelayMs=180,jitterMarginMs=25} = {}) {
     this.minDelayMs = delayMs; this.delayMs = delayMs; this.samples = [];
+    this.maxDelayMs=Math.max(delayMs,maxDelayMs);this.jitterMarginMs=jitterMarginMs;
     this.intervals = []; this.playbackAt = -Infinity;
   }
   reset() { this.samples.length = 0; this.intervals.length = 0; this.delayMs = this.minDelayMs; this.playbackAt = -Infinity; }
@@ -18,7 +19,7 @@ export class SnapshotMotion {
       this.intervals.push(now - last.at); if (this.intervals.length > 12) this.intervals.shift();
       if (this.intervals.length >= 4) {
         const sorted = [...this.intervals].sort((a,b)=>a-b);
-        const target = Math.max(this.minDelayMs, Math.min(180, sorted[Math.floor((sorted.length - 1)*.9)] + 25));
+        const target = Math.max(this.minDelayMs, Math.min(this.maxDelayMs, sorted[Math.floor((sorted.length - 1)*.9)] + this.jitterMarginMs));
         this.delayMs += (target - this.delayMs) * .15;
       }
     }
@@ -64,7 +65,7 @@ export function disposeModel(root) {
   if(!root)return;
   const geometries=new Set(),materials=new Set(),textures=new Set();
   root.traverse(o=>{
-    if(o.geometry)geometries.add(o.geometry);
+    if(o.geometry&&!o.geometry.userData?.shared)geometries.add(o.geometry);
     for(const m of (Array.isArray(o.material)?o.material:[o.material]))if(m){
       materials.add(m);
       for(const value of Object.values(m))if(value?.isTexture)textures.add(value);

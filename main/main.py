@@ -19,6 +19,25 @@ from starlette.concurrency import run_in_threadpool
 from evac import TARGET_N, MAX_NPCS, SCENARIO_VERSION, DataPersistenceError, EvacSim
 from nav3d import EvacSim3D, SceneValidationError, validate_scene
 
+def _restrict_file_descriptor(fd: int) -> None:
+    """Restrict newly-created files where POSIX descriptor permissions exist."""
+    if os.name != "nt":
+        os.fchmod(fd, 0o600)
+
+
+def _sync_directory(path: Path) -> None:
+    """Persist directory metadata where the platform supports directory handles."""
+    if os.name == "nt":
+        # Windows does not permit opening directories as file descriptors.
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    fd = os.open(path, flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 # ---------------- 全局常量 ----------------
 BASE_DIR = Path(__file__).parent
 STATIC_DIR = BASE_DIR / "static"
@@ -27,6 +46,7 @@ STATIC_DIR = BASE_DIR / "static"
 # browsers and reverse proxies receive an accurate content type.
 mimetypes.add_type("model/gltf-binary", ".glb")
 mimetypes.add_type("model/gltf+json", ".gltf")
+mimetypes.add_type("text/javascript", ".mjs")
 DATA_DIR = Path(os.environ.get("MAZE_DATA_DIR", str(BASE_DIR / "data"))).expanduser()
 DATA_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
 AUDIT_LOG_PATH = Path(os.environ.get("MAZE_AUDIT_LOG", str(DATA_DIR / "audit.jsonl"))).expanduser()
@@ -355,7 +375,7 @@ def audit_event(action: str, request: Optional[Request] = None, **details):
         line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
         with AUDIT_LOCK:
             fd = os.open(AUDIT_LOG_PATH, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600)
-            os.fchmod(fd, 0o600)
+            _restrict_file_descriptor(fd)
             with os.fdopen(fd, "a", encoding="utf-8") as handle:
                 handle.write(line)
                 handle.flush()
@@ -701,6 +721,7 @@ async def add_request_and_security_headers(request: Request, call_next):
     )
     no_store_paths = audited_gets | {
         "/healthz", "/readyz", "/api/version", "/api/info", "/api/scene-models",
+        "/", "/play", "/calibrate",
     }
     if request.url.path in no_store_paths or request.url.path.startswith("/api/admin/"):
         response.headers["Cache-Control"] = "no-store"
@@ -711,6 +732,10 @@ async def add_request_and_security_headers(request: Request, call_next):
     # name or a new ?v=<sha256> query), so they are safe to cache for a week.
     elif request.url.path.startswith("/static/scenes/") and request.url.path.lower().endswith(".glb"):
         response.headers["Cache-Control"] = "public, max-age=604800"
+    elif request.url.path.startswith("/static/"):
+        revision = request.query_params.get("v", "")
+        response.headers["Cache-Control"] = ("public, max-age=604800, immutable"
+            if re.fullmatch(r"[a-fA-F0-9]{8,64}", revision) else "no-cache")
     return response
 
 
@@ -1320,14 +1345,12 @@ def _atomic_json(path: Path, data: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_path = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     try:
-        os.fchmod(fd, 0o600)
+        _restrict_file_descriptor(fd)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             json.dump(data, handle, ensure_ascii=False, indent=2)
             handle.flush(); os.fsync(handle.fileno())
         os.replace(temp_path, path)
-        dirfd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
-        try: os.fsync(dirfd)
-        finally: os.close(dirfd)
+        _sync_directory(path.parent)
     except Exception:
         with suppress(OSError): os.unlink(temp_path)
         raise
@@ -1499,7 +1522,7 @@ class SceneHub:
         for pid, sock in list(self.players.items()):
             if sock is ws:
                 self.players.pop(pid, None)
-                if SCENE_SIM: SCENE_SIM.human_leave(pid)
+                if SCENE_SIM: SCENE_SIM.human_disconnect(pid)
         self.outboxes.pop(ws, None)
         self.compact_clients.discard(ws); self.sent_scene_keys.pop(ws, None)
         task = self.senders.pop(ws, None)

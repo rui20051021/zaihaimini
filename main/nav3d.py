@@ -42,9 +42,9 @@ CROWD_PUSH_FRACTION = 0.6
 # Body radius used for wall collision.  A person is only allowed where the
 # whole circle fits inside the walkable polygon, which is what stops the
 # capsule from visually intersecting facades when someone hugs a wall.
-# 0.15 matches the provisional school model: its real door openings are only
-# about 0.46 model-units wide, so a 0.22 disc cannot pass the centerline.
+# Door clearance is validated separately by the calibration checks.
 AGENT_RADIUS = 0.15
+ELEVATION_TOLERANCE_M = 0.02
 # Spatial cell used by the social-force query.  Values larger than the 1.2 m
 # interaction radius would miss neighbours, so keep them equal.
 CROWD_BIN_SIZE = 1.2
@@ -343,6 +343,46 @@ def _strict_segment_intersection(a: Vec2, b: Vec2, c: Vec2, d: Vec2) -> bool:
            ((cd_a > eps and cd_b < -eps) or (cd_a < -eps and cd_b > eps))
 
 
+def _point_strictly_in_ring(p: Vec2, ring: Sequence[Vec2], eps: float = 1e-7) -> bool:
+    """Inside a polygon but not on its boundary (shared borders stay valid)."""
+    if not point_in_ring(p, ring):
+        return False
+    return all(_point_segment_distance(p, a, ring[(i + 1) % len(ring)])[0] > eps
+               for i, a in enumerate(ring))
+
+
+def _ring_inside_region(ring: Sequence[Vec2], region: dict) -> bool:
+    """Return whether a whole spawn outline lies in one walkable region.
+
+    Sharing an outer edge is valid. Crossing an outer or obstacle boundary,
+    enclosing an obstacle, or bridging two adjacent regions is not. Edge
+    samples supplement the vertices so a long edge cannot jump outside the
+    region between two valid corners.
+    """
+    outer, holes = region["outer"], region["holes"]
+    samples = list(ring)
+    for a, b in zip(ring, ring[1:] + ring[:1]):
+        for fraction in (.25, .5, .75):
+            samples.append((a[0] + (b[0] - a[0]) * fraction,
+                            a[1] + (b[1] - a[1]) * fraction))
+    samples.append((sum(p[0] for p in ring) / len(ring),
+                    sum(p[1] for p in ring) / len(ring)))
+    if not all(point_in_region(p, region) for p in samples):
+        return False
+    for a, b in zip(ring, ring[1:] + ring[:1]):
+        if any(_strict_segment_intersection(a, b, outer[i], outer[(i + 1) % len(outer)])
+               for i in range(len(outer))):
+            return False
+        for hole in holes:
+            if any(_strict_segment_intersection(a, b, hole[i], hole[(i + 1) % len(hole)])
+                   for i in range(len(hole))):
+                return False
+    for hole in holes:
+        if any(point_in_ring(p, ring) for p in hole):
+            return False
+    return True
+
+
 def _triangle_inside_region(tri: Sequence[Vec2], outer: Sequence[Vec2],
                             holes: Sequence[Sequence[Vec2]]) -> bool:
     samples = list(tri) + [((tri[i][0] + tri[(i + 1) % 3][0]) / 2,
@@ -506,9 +546,24 @@ def validate_scene(raw: dict, require_route: bool = True) -> dict:
         for zi, zone in enumerate(zones_raw):
             if not isinstance(zone, dict): raise SceneValidationError("起始区域必须是对象")
             outer_zone = _normalize_ring(zone.get("outer"), f"{fid}.spawn_zones[{zi}]")
-            if not all(any(point_in_region(p, region) for region in normalized) for p in outer_zone):
-                raise SceneValidationError("起始区域必须落在本楼层可走区域内")
-            zones.append({"id": str(zone.get("id", f"{fid}-spawn-{zi+1}")), "outer": outer_zone})
+            owners = [region["id"] for region in normalized
+                      if _ring_inside_region(outer_zone, region)]
+            if not owners:
+                raise SceneValidationError(
+                    "起始区域必须完整落在同一块可走区域内；可以贴边，但不能跨区域拼接或覆盖障碍")
+            # A spawn outline must not bridge two adjacent walkable rooms.
+            # An edge may touch a shared border, but another region's vertex
+            # or representative point may not lie strictly inside the outline.
+            bridged = [other["id"] for other in normalized
+                       if other["id"] != owners[0]
+                       and (any(_point_strictly_in_ring(v, outer_zone) for v in other["outer"])
+                            or (_point_strictly_in_ring(other["center"], outer_zone)
+                                and point_in_region(other["center"], other)))]
+            if bridged:
+                raise SceneValidationError(
+                    f"起始区域跨越了相邻可走区 {', '.join(bridged)}；请在同一块区域内部重新圈定")
+            zones.append({"id": str(zone.get("id", f"{fid}-spawn-{zi+1}")),
+                          "outer": outer_zone, "region": owners[0]})
         floor_copy = {"id": fid, "name": str(floor.get("name", fid))[:80],
                       "elevation_m": elevation, "walkable": normalized, "spawn_zones": zones}
         floors.append(floor_copy)
@@ -530,6 +585,14 @@ def validate_scene(raw: dict, require_route: bool = True) -> dict:
         bottom, top = _vec3(item.get("bottom"), "stairs.bottom"), _vec3(item.get("top"), "stairs.top")
         if source not in floor_ids or target not in floor_ids or source == target:
             raise SceneValidationError("楼梯必须连接两个不同且存在的楼层")
+        source_elevation = next(f["elevation_m"] for f in floors if f["id"] == source)
+        target_elevation = next(f["elevation_m"] for f in floors if f["id"] == target)
+        if abs(bottom[1] - source_elevation) > ELEVATION_TOLERANCE_M:
+            raise SceneValidationError(
+                f"楼梯底端高度应为起始楼面标高 {source_elevation:.2f} m，实际为 {bottom[1]:.2f} m")
+        if abs(top[1] - target_elevation) > ELEVATION_TOLERANCE_M:
+            raise SceneValidationError(
+                f"楼梯顶端高度应为目标楼面标高 {target_elevation:.2f} m，实际为 {top[1]:.2f} m")
         a = containing_region(source, (bottom[0], bottom[2]))
         b = containing_region(target, (top[0], top[2]))
         if not a or not b:
@@ -586,8 +649,19 @@ def validate_scene(raw: dict, require_route: bool = True) -> dict:
         if regions[from_region]["floor"] != floor_id or regions[to_region]["floor"] != floor_id or from_region == to_region:
             raise SceneValidationError("门两侧必须是同一楼层的不同区域")
         pos = _vec3(item.get("position"), "door.position")
-        if abs(pos[1] - regions[from_region]["elevation"]) > 2.0 or not containing_region(floor_id, (pos[0], pos[2])):
-            raise SceneValidationError("门位置必须位于对应楼层可走区域附近")
+        expected_floor = regions[from_region]["elevation"]
+        if abs(pos[1] - expected_floor) > ELEVATION_TOLERANCE_M:
+            raise SceneValidationError(
+                f"门高度应为楼面标高 {expected_floor:.2f} m，实际为 {pos[1]:.2f} m")
+        center = (pos[0], pos[2])
+        if not (point_in_region(center, regions[from_region])
+                or point_in_region(center, regions[to_region])):
+            raise SceneValidationError("门中心必须位于其两侧区域之一，不能跨到其他区域")
+        unrelated = [rid for rid, region in regions.items()
+                     if region["floor"] == floor_id and rid not in {from_region, to_region}
+                     and point_in_region(center, region)]
+        if unrelated:
+            raise SceneValidationError(f"门中心同时落在无关区域 {', '.join(unrelated)}；请调整区域选择或门位置")
         width = _finite_number(item.get("width_m", .9), "door.width_m")
         normal = _vec2(item.get("normal", [1, 0]), "door.normal")
         mode = item.get("mode", "both")
@@ -618,9 +692,15 @@ def validate_scene(raw: dict, require_route: bool = True) -> dict:
         if kind not in {"exit", "practice"}:
             raise SceneValidationError("出口类型只能为 exit 或 practice")
         width = _finite_number(item.get("width_m", 1.2), "exit.width_m")
+        if floor_id not in floor_ids:
+            raise SceneValidationError("出口所属楼层不存在")
         region = containing_region(floor_id, (pos[0], pos[2]))
-        if not region or abs(pos[1] - region["elevation"]) > 2.0:
-            raise SceneValidationError("出口必须位于对应楼层的可走区域附近")
+        expected_floor = next(f["elevation_m"] for f in floors if f["id"] == floor_id)
+        if not region:
+            raise SceneValidationError("出口必须位于对应楼层的可走区域内，并避开障碍")
+        if abs(pos[1] - expected_floor) > ELEVATION_TOLERANCE_M:
+            raise SceneValidationError(
+                f"出口高度应为楼面标高 {expected_floor:.2f} m，实际为 {pos[1]:.2f} m")
         if not .4 <= width <= 30:
             raise SceneValidationError("出口宽度不合理")
         exits.append({"id": str(eid), "floor": floor_id, "position": pos,
@@ -712,6 +792,7 @@ class Agent3D:
     active_connector: Optional[str] = None
     connector_progress: float = 0.0
     connector_forward: bool = True
+    connector_resume_pending: bool = False
     connector_entry: Optional[Vec3] = None
     pressure: float = 0.0
     density: int = 0
@@ -1013,7 +1094,12 @@ class EvacSim3D:
 
     def add_human(self, pid: str, name: str, color: str):
         if pid in self.agents:
-            a = self.agents[pid]; a.name = name or a.name; return a
+            a = self.agents[pid]; a.name = name or a.name
+            if a.state == "offline":
+                a.input = (0.0, 0.0); a.velocity = (0.0, 0.0, 0.0)
+                a.input_received_at = None
+                a.state = "walking-stairs" if a.active_connector else "walking" if self.phase == "running" else "waiting"
+            return a
         sample = self._sample_region()
         p, region = sample["point"], sample["region"]
         agent = Agent3D(pid, name or "玩家", color,
@@ -1026,6 +1112,21 @@ class EvacSim3D:
         agent = self.agents.get(pid)
         if agent and agent.human and not agent.escaped and not agent.failed and not agent.completed:
             self.agents.pop(pid, None)
+
+    def human_disconnect(self, pid: str):
+        """Keep this trial's identity and observations across a transport loss.
+
+        Offline agents neither move nor produce fabricated track samples. The
+        operator can still archive the trial, and a reconnect reuses the object
+        held by the participant socket instead of spawning a replacement.
+        """
+        agent = self.agents.get(pid)
+        if not agent or not agent.human: return
+        agent.input = (0.0, 0.0); agent.velocity = (0.0, 0.0, 0.0)
+        agent.input_received_at = None
+        if not agent.escaped and not agent.failed and not agent.completed:
+            agent.state = "offline"
+            agent.connector_resume_pending = bool(agent.active_connector)
 
     def _region_for(self, position: Vec3, floor_id: str) -> Optional[dict]:
         p = (position[0], position[2])
@@ -1312,6 +1413,7 @@ class EvacSim3D:
     def _stair_occupancy(self, connector_id: str, forward: bool, exclude: Optional[Agent3D] = None) -> int:
         return sum(1 for other in self.agents.values()
                    if other is not exclude and not other.escaped and not other.failed
+                   and other.state != "offline" and not other.connector_resume_pending
                    and other.active_connector == connector_id
                    and other.connector_forward == forward)
 
@@ -1353,7 +1455,7 @@ class EvacSim3D:
             for iy in range(gy-1,gy+2):
                 for iz in range(gz-1,gz+2): nearby.extend(self._spatial_bins.get((ix,iy,iz),()))
         for other in nearby:
-            if other is agent or other.escaped or other.failed or other.completed:
+            if other is agent or other.escaped or other.failed or other.completed or other.state == "offline":
                 continue
             dx, dy, dz = (agent.position[0]-other.position[0], agent.position[1]-other.position[1],
                           agent.position[2]-other.position[2])
@@ -1375,7 +1477,13 @@ class EvacSim3D:
         if not stair:
             agent.active_connector = None
             agent.connector_entry = None
+            agent.connector_resume_pending = False
             return False
+        if agent.connector_resume_pending:
+            if not self._stair_available(stair, agent.connector_forward, agent):
+                agent.state = "queued-stairs"; agent.velocity = (0.0, 0.0, 0.0)
+                return True
+            agent.connector_resume_pending = False
         if agent.human and agent.input_received_at is not None and math.hypot(*agent.input) < .01:
             agent.velocity = (0., 0., 0.)
             agent.state = "walking-stairs"
@@ -1564,6 +1672,7 @@ class EvacSim3D:
                 for a in self.agents.values(): a.path.clear()
         self._spatial_bins={}
         for candidate_agent in self.agents.values():
+            if candidate_agent.escaped or candidate_agent.failed or candidate_agent.completed or candidate_agent.state == "offline": continue
             cell=CROWD_BIN_SIZE
             key=tuple(math.floor(v/cell) for v in candidate_agent.position)
             self._spatial_bins.setdefault(key,[]).append(candidate_agent)
@@ -1867,12 +1976,14 @@ class EvacSim3D:
         self._build_graph()
         if clear_fire: self.fire.clear(); self.smoke = {rid: 0.0 for rid in self.smoke}
         for agent in self.agents.values():
-            agent.escaped = agent.failed = agent.completed = False; agent.state = "waiting"
+            offline = agent.state == "offline"
+            agent.escaped = agent.failed = agent.completed = False; agent.state = "offline" if offline else "waiting"
             agent.goal_exit_id = None
             agent.health = 1.0; agent.smoke_dose=0.0; agent.max_smoke=0.0
             agent.path.clear(); agent.track.clear(); agent.path_length=0.0
             agent.active_connector=None; agent.connector_progress=0.0; agent.connector_entry=None
             agent.connector_forward=True
+            agent.connector_resume_pending=False
             agent.input=(0.0, 0.0); agent.velocity=(0.0, 0.0, 0.0)
             agent.input_received_at=None; agent.blocked_reason=""
             agent.pressure=0.0; agent.density=0
@@ -1969,11 +2080,17 @@ def _atomic_text(path: Path, text: str):
     path.parent.mkdir(parents=True,exist_ok=True)
     fd,tmp=tempfile.mkstemp(prefix=f".{path.name}.",suffix=".tmp",dir=path.parent)
     try:
-        os.fchmod(fd,0o600)
+        # mkstemp already creates owner-only files. Windows has no fchmod.
+        if hasattr(os,"fchmod"):
+            os.fchmod(fd,0o600)
         with os.fdopen(fd,"w",encoding="utf-8",newline="") as f:
+            fd=None
             f.write(text); f.flush(); os.fsync(f.fileno())
         os.replace(tmp,path)
     except Exception:
+        if fd is not None:
+            try: os.close(fd)
+            except OSError: pass
         try: os.unlink(tmp)
         except OSError: pass
         raise

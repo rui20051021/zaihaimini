@@ -7,8 +7,8 @@
 <link rel="modulepreload" href="/static/vendor/three.module.js">
 <link rel="modulepreload" href="/static/vendor/GLTFLoader.js">
 <link rel="modulepreload" href="/static/vendor/meshopt_decoder.module.js">
-<link rel="modulepreload" href="/static/utils/participant-motion.mjs?v=3">
-<link rel="modulepreload" href="/static/utils/render-performance.mjs?v=1">
+<link rel="modulepreload" href="/static/utils/participant-motion.mjs?v=20261016">
+<link rel="modulepreload" href="/static/utils/render-performance.mjs?v=20261016">
 <script>
 // Begin metadata/model transfer while the rendering modules are still loading.
 window.initialSceneState=fetch('/api/v2/state',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error('场景读取失败');return r.json()}).then(s=>{
@@ -51,8 +51,10 @@ button{border-radius:8px;transition:transform .15s,background .15s,border-color 
 @media(max-width:1120px){.app{grid-template-columns:minmax(0,1fr) 350px}.toolbar{left:320px}}
 @media(max-width:820px){.app{display:block}.stage{height:48vh;min-height:330px}.panel{height:52vh;border-left:0;border-top:1px solid #29405d}.toolbar{left:18px;right:18px;top:92px;max-height:64px}.hud{top:14px}.hint{display:none}}
 </style>
+<link rel="stylesheet" href="/static/spatial-ui.css?v=20261023i">
+<link rel="modulepreload" href="/static/utils/spatial-ui.mjs?v=20261023i"><link rel="modulepreload" href="/static/utils/lucide-icons.mjs?v=20261023i">
 </head>
-<body>
+<body class="silver-ui host-ui">
 <div id="adminGate" class="admin-gate hidden" aria-hidden="true"><form id="adminForm" class="admin-card"><h2>主机管理验证</h2><p>当前服务启用了管理员保护。请输入启动服务时配置的管理令牌，验证只在本浏览器创建短期安全会话。</p><label for="adminToken">管理令牌</label><input id="adminToken" type="password" autocomplete="current-password" required><button type="submit">验证并进入主机</button><div id="adminError" class="admin-error" aria-live="polite"></div></form></div>
 <div class="app">
  <main class="stage"><canvas id="view"></canvas><div class="hud"><div class="title">迷宫 · 真实 3D 疏散观察台</div><div class="meta" id="sceneMeta">正在加载校准场景…</div></div><div id="loadProgress" class="load-progress"><span id="loadProgressText">正在加载 3D 建筑…</span><div class="bar"><i></i></div></div>
@@ -89,14 +91,17 @@ button{border-radius:8px;transition:transform .15s,background .15s,border-color 
 </div>
 <script type="module">
 import * as THREE from 'three';
-import {eyeHeight,agentVisualScale,SnapshotMotion,ModelRequest,disposeModel} from '/static/utils/participant-motion.mjs?v=3';
-import {RenderBudget,cacheFloorHeights} from '/static/utils/render-performance.mjs?v=1';
+import {initSpatialUI} from '/static/utils/spatial-ui.mjs?v=20261023i';
+initSpatialUI('host');
+import {eyeHeight,agentVisualScale,SnapshotMotion,ModelRequest,disposeModel} from '/static/utils/participant-motion.mjs?v=20261016';
+import {RenderBudget,cacheFloorHeights} from '/static/utils/render-performance.mjs?v=20261016';
 import {GLTFLoader} from '/static/vendor/GLTFLoader.js';
+import {ReconnectingSocket} from '/static/utils/reconnecting-socket.mjs?v=20261016';
 import {MeshoptDecoder} from '/static/vendor/meshopt_decoder.module.js';
 import {sampleAtTime, headingFor, dampAngle, lookDirection} from '/static/utils/host-camera.mjs?v=3';
 const canvas=document.querySelector('#view'), renderer=new THREE.WebGLRenderer({canvas,antialias:false,alpha:false,powerPreference:'high-performance'}); renderer.localClippingEnabled=true;
 renderer.setPixelRatio(Math.min(1.25,devicePixelRatio)); renderer.setSize(canvas.clientWidth,canvas.clientHeight,false); renderer.outputColorSpace=THREE.SRGBColorSpace;
-const scene=new THREE.Scene(); scene.background=new THREE.Color(0x07101b); scene.add(new THREE.HemisphereLight(0xcfe8ff,0x162238,2.2));
+const scene=new THREE.Scene(); scene.background=new THREE.Color(0xeaf0f7); scene.add(new THREE.HemisphereLight(0xf2f7ff,0x708199,2.2));
 const sun=new THREE.DirectionalLight(0xffffff,2.5); sun.position.set(15,30,10); scene.add(sun);
 const camera=new THREE.PerspectiveCamera(45,1,.02,1000); let root=null, sceneData=null, agents=new Map(), smokeMeshes=new Map(), fireMeshes=new Map();
 const DEFAULT_OBSERVE_HEADING=Math.PI/2;
@@ -112,6 +117,8 @@ function sceneRegion(id){return (sceneData?.floors||[]).find(f=>f.id===id)||null
 function effectPosition(item){const p=item.position||[0,0,0];return new THREE.Vector3(p[0],p[1],p[2])}
 function optimizeModel(obj){obj.traverse(o=>{if(o.isLine||o.isLineSegments)o.visible=false;if(o.isMesh){o.frustumCulled=true;o.castShadow=false;o.receiveShadow=false;o.userData.baseVisible=o.visible;}o.updateMatrix();o.matrixAutoUpdate=false;});}
 function actorEyeHeight(floor){return hostFloorHeights.get(floor)??eyeHeight(sceneData?.floors,floor);}
+const actorScaleCache=new Map();
+function actorScale(floor,height){const key=JSON.stringify([floor,height]);if(!actorScaleCache.has(key))actorScaleCache.set(key,agentVisualScale(sceneData?.floors,floor,height));return actorScaleCache.get(key);}
 
 function applyMaterialOpacity(obj,value){obj.traverse(o=>{if(!o.isMesh||!o.material)return;for(const m of Array.isArray(o.material)?o.material:[o.material]){if(!m.userData.originalView){m.userData.originalView={opacity:m.opacity,transparent:m.transparent,depthWrite:m.depthWrite};}const original=m.userData.originalView;const transparent=original.transparent||value<.99;if(m.transparent!==transparent){m.transparent=transparent;m.needsUpdate=true}m.opacity=original.opacity*value;m.depthWrite=value>.94?original.depthWrite:false;}})}
 function displayAgents(){
@@ -164,16 +171,18 @@ function addModel(){
   },e=>{if(!hostModelRequest.finish(generation,false))return;setLoadProgress('3D 模型加载失败，请检查 GLB',false,false);$('#connection').textContent='3D 模型加载失败';$('#connection').className='status err';console.error(e);});
 }
 
-function fitCamera(){if(!sceneData)return;const all=new THREE.Box3();if(root)all.expandByObject(root);const size=all.getSize(new THREE.Vector3()),center=all.getCenter(new THREE.Vector3());orbit.target.copy(center);orbit.dist=Math.max(18,size.length()*1.05);orbit.phi=1.02}
+function fitCamera(){if(!sceneData)return;const all=new THREE.Box3();if(root)all.expandByObject(root);const size=all.getSize(new THREE.Vector3()),center=all.getCenter(new THREE.Vector3());orbit.target.copy(center);const halfFov=Math.atan(Math.tan(THREE.MathUtils.degToRad(camera.fov/2))*Math.min(1,camera.aspect));orbit.dist=Math.max(18,size.length()*.56/Math.sin(halfFov));orbit.phi=1.02}
+const actorGeometries=new Map();
+function actorGeometry(key,create){if(!actorGeometries.has(key)){const g=create();g.userData.shared=true;actorGeometries.set(key,g);}return actorGeometries.get(key);}
 function makeAgent(a){
   const g=new THREE.Group();
   const human=Boolean(a.human), color=new THREE.Color(human?'#42d6ff':a.color||'#8ba4ca');
   const radius=human?.23:.18, bodyLength=human?.92:1.02, bodyHeight=bodyLength+radius*2;
   const bodyMat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:1,depthTest:true,depthWrite:true});
-  const body=new THREE.Mesh(new THREE.CapsuleGeometry(radius,bodyLength,6,10),bodyMat);body.position.y=bodyHeight/2;body.renderOrder=20;g.add(body);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(human?.18:.14,12,8),bodyMat.clone());head.position.y=bodyHeight+(human?.18:.14);head.renderOrder=21;g.add(head);
-  const ring=new THREE.Mesh(new THREE.RingGeometry(human?.38:.30,human?.48:.38,24),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.95,side:THREE.DoubleSide,depthWrite:false}));ring.rotation.x=-Math.PI/2;ring.position.y=.025;ring.renderOrder=22;g.add(ring);
-  const halo=new THREE.Mesh(new THREE.RingGeometry(human?.26:.20,human?.30:.23,20),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));halo.rotation.x=-Math.PI/2;halo.position.y=bodyHeight+.02;halo.renderOrder=23;g.add(halo);
+  const body=new THREE.Mesh(actorGeometry('body'+human,()=>new THREE.CapsuleGeometry(radius,bodyLength,6,10)),bodyMat);body.position.y=bodyHeight/2;body.renderOrder=20;g.add(body);
+  const head=new THREE.Mesh(actorGeometry('head'+human,()=>new THREE.SphereGeometry(human?.18:.14,12,8)),bodyMat.clone());head.position.y=bodyHeight+(human?.18:.14);head.renderOrder=21;g.add(head);
+  const ring=new THREE.Mesh(actorGeometry('ring'+human,()=>new THREE.RingGeometry(human?.38:.30,human?.48:.38,24)),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.95,side:THREE.DoubleSide,depthWrite:false}));ring.rotation.x=-Math.PI/2;ring.position.y=.025;ring.renderOrder=22;g.add(ring);
+  const halo=new THREE.Mesh(actorGeometry('halo'+human,()=>new THREE.RingGeometry(human?.26:.20,human?.30:.23,20)),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false}));halo.rotation.x=-Math.PI/2;halo.position.y=bodyHeight+.02;halo.renderOrder=23;g.add(halo);
   g.userData={pid:a.pid,human,baseHeight:bodyHeight,nativeHeight:human?1.74:1.66,halo};scene.add(g);return g;
 }
 function replaySample(record,time){return sampleAtTime(record?.samples,time)}
@@ -193,7 +202,7 @@ function updateAgents(dt=.016,now=performance.now()){
     else agentMotion.get(a.pid)?.sample(now,g.position);
     g.visible=(viewMode==='replay'||!a.escaped)&&!a.failed&&(firstPerson||activeFloor==='all'||activeFloor===a.floor)&&!(firstPerson&&a.pid===selectedPid);
     const color=a.failed?'#ef6060':a.escaped?'#6fd99c':a.human?'#42d6ff':a.color||'#8ba4ca';
-    const visualScale=agentVisualScale(sceneData?.floors,a.floor,g.userData.nativeHeight);const style=[color,selectedPid===a.pid,actorEyeHeight(a.floor),visualScale].join('|');
+    const visualScale=actorScale(a.floor,g.userData.nativeHeight);const style=[color,selectedPid===a.pid,actorEyeHeight(a.floor),visualScale].join('|');
     if(g.userData.style!==style){
       g.userData.style=style;g.children[0].material.color.set(color);if(g.children[0].material.emissive)g.children[0].material.emissive.set(color);
       g.children[1].material.color.set(color);g.children[2].material.color.set(selectedPid===a.pid?'#ffffff':color);
@@ -288,7 +297,7 @@ function replayStats(){
   const escaped=(replayData?.agents||[]).reduce((total,record)=>total+(replaySample(record,replayTime)?.escaped?1:0),0);
   return {...base,escaped};
 }
-function updateDoorList(){const list=$('#doorList'),doors=state?.doors||[];const key=JSON.stringify(doors.map(d=>[d.id,d.name,d.state]));if(list.dataset.key===key)return;list.dataset.key=key;if(!doors.length){list.textContent='当前场景没有配置门';return}list.innerHTML='';for(const d of doors){const row=document.createElement('div');row.style='display:flex;align-items:center;justify-content:space-between;gap:6px;margin:4px 0';const label=document.createElement('span');label.textContent=`${d.name||d.id} · ${d.state}`;const actions=document.createElement('span');for(const action of ['open','close','lock','unlock','fire-block','clear-block']){const b=document.createElement('button');b.textContent=({open:'开',close:'关',lock:'锁',unlock:'解锁','fire-block':'火阻断','clear-block':'恢复'}[action]);b.style='font-size:10px;padding:3px 5px;margin-left:3px';b.onclick=()=>send('door',{door_id:d.id,action});actions.append(b)}row.append(label,actions);list.append(row)}}
+function updateDoorList(){const list=$('#doorList'),doors=state?.doors||[];const key=JSON.stringify(doors.map(d=>[d.id,d.name,d.state]));if(list.dataset.key===key)return;list.dataset.key=key;if(!doors.length){list.textContent='当前场景没有配置门';return}list.innerHTML='';for(const d of doors){const row=document.createElement('div');row.style='display:flex;align-items:center;justify-content:space-between;gap:6px;margin:4px 0';const label=document.createElement('span');label.textContent=`${d.name||d.id} · ${d.state}`;const actions=document.createElement('span');for(const action of ['open','close','lock','unlock','fire-block','clear-block']){const b=document.createElement('button');b.dataset.doorAction=action;b.textContent=({open:'开',close:'关',lock:'锁',unlock:'解锁','fire-block':'火阻断','clear-block':'恢复'}[action]);b.style='font-size:10px;padding:3px 5px;margin-left:3px';b.onclick=()=>send('door',{door_id:d.id,action});actions.append(b)}row.append(label,actions);list.append(row)}}
 let restartPending=false;
 function updateUI(){
   if(!state)return;
@@ -305,17 +314,17 @@ function updateUI(){
   $('#startBtn').disabled=restartPending||waitingForHuman;
   const restartAvailable=npcEnabled||Number(state.connected_human_count??online.length)>0;
   $('#restartBtn').disabled=restartPending||!restartAvailable;
-  $('#restartBtn').title=restartAvailable?'清除本场状态并立即开始新场次':'请先等待至少一名真人参与者连接';
+  const restartHint=$('#restartBtn');restartHint.dataset.tooltipTitle='重新开始一场';restartHint.dataset.tooltipDescription=restartAvailable?'清除本场状态并立即开始新场次；进入前会再次确认。':'请先等待至少一名真人参与者连接，之后才能开始新场次。';restartHint.dataset.tooltipState=restartAvailable?'可用 · 将再次确认':'等待参与者连接';
   for(const id of ['pauseBtn','resetBtn','sceneSelect'])$('#'+id).disabled=restartPending;
-  $('#startBtn').title=waitingForHuman?(offlineCount?'参与者已离线，请让手机重新打开页面':'请先等待真人参与者加入'):'开始本场实验';
+  const startHint=$('#startBtn');startHint.dataset.tooltipTitle='开始本场实验';startHint.dataset.tooltipDescription=waitingForHuman?(offlineCount?'参与者已离线，请让手机重新打开页面并保持在线。':'请先让真人参与者加入并完成知情同意，确认在线人数后再开始。'):'启动本场仿真或真人疏散演练。';startHint.dataset.tooltipState=waitingForHuman?'等待参与者在线':'可用';
   if(!npcEnabled){$('#humanModeNotice').textContent=offlineCount&&!online.length?`已有 ${humans.length} 名参与者，但手机连接已断开。请重新打开手机页面，看到在线后再开始。`:online.length?`真人实验模式：${online.length} 名参与者在线，可以开始。`:'真人实验模式：当前不生成 NPC。请让参与者打开手机端并完成知情同意，主机确认人数后再开始。';}
   $('#smokePeak').textContent=shown.smokePeak.toFixed(2);
   const phase=replaying?'历史回放':({idle:'待命',running:'疏散中',paused:'暂停',ended:'本场已结束'}[state.phase]||state.phase);
   $('#sceneMeta').textContent=`${state.scene?.name||state.scene_id} · ${phase} · ${firstPerson?'第一视角':replaying?'回放':'实时观察'} · NPC ${shown.npc} · 真人 ${shown.human}`;
   const sc=$('#scaleNotice');sc.textContent=state.scale_status==='verified'?'正式尺度已确认，可以开始正式实验。':'当前为临时比例：可以演示，正式实验前请完成长度校准。';sc.className='scale '+(state.scale_status==='verified'?'verified':'');if(state.scene?.navigation_review?.status==='needs-review'){sc.textContent=state.scene.navigation_review.message;sc.className='scale';}
-  $('#startBtn').textContent=state.scale_status==='verified'?'开始正式实验':'开始演示';
+  const startLabel=state.scale_status==='verified'?'开始正式实验':'开始演示',startLabelNode=$('#startBtn').querySelector(':scope > span');if(startLabelNode){if(startLabelNode.textContent!==startLabel)startLabelNode.textContent=startLabel;}else if($('#startBtn').textContent!==startLabel){$('#startBtn').textContent=startLabel;}
   const floors=state.scene?.floors||[],key=floors.map(f=>`${f.id}:${f.name}`).join('|');const list=$('#floorList');
-  if(list.dataset.key!==key){list.dataset.key=key;list.replaceChildren();for(const f of [{id:'all',name:'全部楼层'},...floors]){const b=document.createElement('button');b.dataset.floor=f.id;b.textContent=f.name||f.id;b.onclick=()=>{if(firstPerson)leaveFirstPerson();activeFloor=f.id;if(f.id==='all'){setViewMode('overview');}else{if(viewMode!=='replay')viewMode='floor';cutaway=true;visualKey='';applyObservationVisuals();updateEffects();updateUI();}};list.append(b);}}
+  if(list.dataset.key!==key){list.dataset.key=key;list.replaceChildren();for(const f of [{id:'all',name:'全部楼层'},...floors]){const b=document.createElement('button');b.dataset.floor=f.id;b.dataset.tooltipKey='dynamicHostFloor';b.dataset.tooltipTitle=f.name||f.id;b.dataset.tooltipDescription=f.id==='all'?'恢复整栋建筑总览并关闭单层聚焦。':'聚焦此楼层并自动剖切上方结构，便于检查室内活动。';b.textContent=f.name||f.id;b.onclick=()=>{if(firstPerson)leaveFirstPerson();activeFloor=f.id;if(f.id==='all'){setViewMode('overview');}else{if(viewMode!=='replay')viewMode='floor';cutaway=true;visualKey='';applyObservationVisuals();updateEffects();updateUI();}};list.append(b);}}
   list.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.floor===activeFloor));
   const a=observedActor();$('#selected').textContent=a?`${a.name||a.pid} · ${a.human?'真人':'NPC'}\n楼层：${a.floor}  状态：${a.state}\n位置：${a.position.x.toFixed(2)}, ${a.position.y.toFixed(2)}, ${a.position.z.toFixed(2)} m\n血量 ${(a.health*100).toFixed(0)}% · 烟气 ${Number(a.smoke||0).toFixed(2)} · 压力 ${Number(a.pressure||0).toFixed(0)}`:'请选择 NPC 或真人，再进入第一视角。';
   syncActorSelector();updateFollowControls();updateReplayUI();updateDoorList();
@@ -326,7 +335,7 @@ function setState(msg){
   if(replaced){clearReplay();agentMotion.clear();}
   state=msg;sceneData=msg.scene||sceneData;
   const floorKey=JSON.stringify(sceneData?.floors||[]);
-  if(floorKey!==hostFloorKey){hostFloorKey=floorKey;hostFloorHeights=cacheFloorHeights(sceneData?.floors,eyeHeight);}
+  if(floorKey!==hostFloorKey){hostFloorKey=floorKey;hostFloorHeights=cacheFloorHeights(sceneData?.floors,eyeHeight);actorScaleCache.clear();}
   const now=performance.now(),seen=new Set();
   for(const a of msg.agents||[]){seen.add(a.pid);let m=agentMotion.get(a.pid);if(!m){m=new SnapshotMotion();agentMotion.set(a.pid,m);}m.push(a,now,Boolean(replaced)||msg.phase!=='running');}
   for(const pid of agentMotion.keys())if(!seen.has(pid))agentMotion.delete(pid);
@@ -447,13 +456,23 @@ function animate(now=performance.now()){
 }
 
 let ws=null;
+let hostConnection=null;
 function connectHostSocket(){
-  if(ws&&ws.readyState<=1)return;
-  ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/host-v2?compact=true`);
-  ws.onopen=()=>{$('#connection').textContent='已连接';$('#connection').className='status ok'};
-  ws.onmessage=e=>{try{setState(JSON.parse(e.data))}catch(error){console.error(error)}};
-  ws.onclose=e=>{if(e.code===4003){showAdminGate('管理会话已过期，请重新验证');return;}if(!sceneData)showSceneError(e.reason||'3D 场景未就绪，请检查模型文件');else{$('#connection').textContent='连接断开';$('#connection').className='status err'}};
+  if(hostConnection?.socket)return;
+  hostConnection?.stop();
+  hostConnection=new ReconnectingSocket({
+    url:()=>`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/host-v2?compact=true`,
+    onopen:socket=>{ws=socket;$('#connection').textContent='已连接';$('#connection').className='status ok';},
+    onmessage:e=>{try{setState(JSON.parse(e.data))}catch(error){console.error(error)}},
+    onclose:e=>{ws=null;if(e.code===4003){showAdminGate('管理会话已过期，请重新验证');return;}$('#connection').textContent=e.reason||'连接断开';$('#connection').className='status err';},
+    shouldRetry:e=>![1000,1008,4003].includes(e.code),
+    onretry:attempt=>{$('#connection').textContent=`正在重连（${attempt}/8）…`;$('#connection').className='status err';},
+    onexhausted:()=>{$('#connection').textContent='网络未恢复，请检查网络并刷新';}
+  });hostConnection.start();
 }
+addEventListener('online',()=>hostConnection?.retryNow());
+document.addEventListener('visibilitychange',()=>{renderBudget.reset(performance.now());if(!document.hidden)hostConnection?.retryNow();});
+
 function showAdminGate(message=''){const gate=$('#adminGate');gate.classList.remove('hidden');gate.setAttribute('aria-hidden','false');$('#adminError').textContent=message;$('#adminToken').focus();}
 function hideAdminGate(){const gate=$('#adminGate');gate.classList.add('hidden');gate.setAttribute('aria-hidden','true');$('#adminError').textContent='';}
 async function postAdminToken(token){const response=await fetch('/api/admin/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||'管理令牌不正确');return data;}

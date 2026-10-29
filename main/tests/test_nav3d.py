@@ -25,14 +25,14 @@ class Navigation3DTests(unittest.TestCase):
         ]
         floor["spawn_zones"] = [{"id": "room-start", "outer": [[3, 1.4], [6, 1.4], [6, 3.5], [3, 3.5]]}]
         scene["doors"] = [{"id": "door-1", "name": "房间门", "floor": "floor-1",
-            "position": [7, 0, 2.5], "width_m": .9, "normal": [1, 0],
+            "position": [7, 0.12, 2.5], "width_m": .9, "normal": [1, 0],
             "from_region": "room", "to_region": "corridor", "mode": "both",
             "initial_state": "closed", "open_duration_s": .2, "auto_close_s": 4}]
-        scene["exits"] = [{"id": "exit", "floor": "floor-1", "position": [13, 0, 2.5], "width_m": 1.2}]
+        scene["exits"] = [{"id": "exit", "floor": "floor-1", "position": [13, 0.12, 2.5], "width_m": 1.2}]
         with tempfile.TemporaryDirectory() as tmp:
             sim = EvacSim3D(scene, Path(tmp), require_route=False, default_npcs=0)
             human = sim.add_human("door-human", "真人", "#fff")
-            human.position = (6.7, 0, 2.5); human.floor_id = "floor-1"; human.region_id = "room"
+            human.position = (6.7, 0.12, 2.5); human.floor_id = "floor-1"; human.region_id = "room"
             human.nav_node = sim._nearest_nav_node("room", human.position)
             self.assertEqual(sim.nearby_doors(human)[0]["state"], "closed")
             self.assertEqual(sim.request_door("door-1", human)["state"], "opening")
@@ -42,15 +42,24 @@ class Navigation3DTests(unittest.TestCase):
 
     def test_locked_door_rejects_participant_request(self):
         scene = school_scene(); scene["id"] = "locked-door"
+        scene["floors"] = [{
+            "id": "floor-1", "name": "一层", "elevation_m": 0.12,
+            "walkable": [
+                {"id": "west-room", "outer": [[2, 2], [5, 2], [5, 4], [2, 4]], "holes": []},
+                {"id": "east-room", "outer": [[5, 2], [8, 2], [8, 4], [5, 4]], "holes": []},
+            ],
+            "spawn_zones": [],
+        }]
+        scene["stairs"] = []
+        scene["exits"] = [{"id": "exit", "floor": "floor-1", "position": [7.5, 0.12, 3.5], "width_m": 1}]
         scene["doors"] = [{"id": "locked", "name": "锁门", "floor": "floor-1",
-            "position": [5, 0, 2.5], "width_m": .9, "normal": [1, 0],
-            "from_region": "floor-1-main", "to_region": "floor-1-main-2",
+            "position": [5, 0.12, 3], "width_m": .9, "normal": [1, 0],
+            "from_region": "west-room", "to_region": "east-room",
             "mode": "both", "initial_state": "locked", "locked": True}]
-        scene["floors"][0]["walkable"].append({"id": "floor-1-main-2", "outer": [[5, .8], [14.5, .8], [14.5, 4.2], [5, 4.2]], "holes": []})
         with tempfile.TemporaryDirectory() as tmp:
             sim = EvacSim3D(scene, Path(tmp), require_route=False, default_npcs=0)
             human = sim.add_human("locked-human", "真人", "#fff")
-            human.position = (4.7, 0, 2.5); human.floor_id = "floor-1"; human.region_id = "floor-1-main"
+            human.position = (4.7, 0.12, 3); human.floor_id = "floor-1"; human.region_id = "west-room"
             human.nav_node = sim._nearest_nav_node(human.region_id, human.position)
             result = sim.request_door("locked", human)
             self.assertFalse(result["ok"])
@@ -395,6 +404,77 @@ class Navigation3DTests(unittest.TestCase):
                                  f"human entered the hole at ({x:.2f}, {z:.2f})")
             self.assertLess(human.position[0], 6.0)
 
+    def test_spawn_zone_must_stay_inside_one_region(self):
+        scene = school_scene()
+        scene["id"] = "spawn-strict"
+        scene["floors"][0]["walkable"] = [
+            {"id": "west", "outer": [[0, 0], [5, 0], [5, 5], [0, 5]], "holes": []},
+            {"id": "east", "outer": [[5, 0], [10, 0], [10, 5], [5, 5]], "holes": []},
+        ]
+        scene["floors"][0]["spawn_zones"] = [
+            {"id": "bridged", "outer": [[3, 1], [7, 1], [7, 4], [3, 4]]}
+        ]
+        with self.assertRaisesRegex(SceneValidationError, "同一块可走区域"):
+            validate_scene(scene)
+        scene["floors"][0]["spawn_zones"] = [
+            {"id": "edge", "outer": [[1, 1], [5, 1], [5, 4], [1, 4]]}
+        ]
+        normalized = validate_scene(scene)
+        self.assertEqual(normalized["floors"][0]["spawn_zones"][0]["region"], "west")
+        self.assertEqual(normalized["floors"][0]["spawn_zones"][0]["region"],
+                         normalized["floors"][0]["walkable"][0]["id"])
+
+    def test_spawn_zone_cannot_enclose_an_obstacle(self):
+        scene = school_scene()
+        scene["id"] = "spawn-hole"
+        scene["floors"][0]["walkable"] = [{
+            "id": "room", "outer": [[0, 0], [10, 0], [10, 10], [0, 10]],
+            "holes": [[[4, 4], [6, 4], [6, 6], [4, 6]]],
+        }]
+        scene["floors"][0]["spawn_zones"] = [
+            {"id": "over-hole", "outer": [[2, 2], [8, 2], [8, 8], [2, 8]]}
+        ]
+        with self.assertRaisesRegex(SceneValidationError, "不能跨区域拼接或覆盖障碍"):
+            validate_scene(scene)
+
+    def test_door_and_exit_must_match_floor_elevation(self):
+        scene = school_scene()
+        scene["id"] = "elevation-strict"
+        scene["doors"][0]["position"][1] = 0.4
+        with self.assertRaisesRegex(SceneValidationError, "门高度应为楼面标高"):
+            validate_scene(scene)
+        scene = school_scene()
+        scene["id"] = "exit-elevation"
+        scene["exits"][0]["position"][1] = 0.45
+        with self.assertRaisesRegex(SceneValidationError, "出口高度应为楼面标高"):
+            validate_scene(scene)
+
+    def test_door_center_cannot_fall_in_unrelated_region(self):
+        scene = school_scene()
+        scene["id"] = "door-third-region"
+        scene["floors"][0]["walkable"] = [
+            {"id": "left", "outer": [[0, 0], [4, 0], [4, 4], [0, 4]], "holes": []},
+            {"id": "right", "outer": [[4, 0], [8, 0], [8, 4], [4, 4]], "holes": []},
+            {"id": "third", "outer": [[0, 4], [8, 4], [8, 7], [0, 7]], "holes": []},
+        ]
+        scene["floors"][0]["spawn_zones"] = []
+        scene["stairs"] = []
+        scene["exits"] = [{"id": "exit", "floor": "floor-1",
+                           "position": [7, 0.12, 6], "width_m": 1}]
+        scene["doors"] = [{"id": "cross", "name": "错位门", "floor": "floor-1",
+                           "position": [6, 0.12, 5], "width_m": 1, "normal": [1, 0],
+                           "from_region": "left", "to_region": "right",
+                           "mode": "both", "initial_state": "closed"}]
+        with self.assertRaisesRegex(SceneValidationError, "不能跨到其他区域"):
+            validate_scene(scene)
+
+    def test_stair_endpoints_must_match_floor_elevations(self):
+        scene = school_scene()
+        scene["id"] = "stair-elevation"
+        scene["stairs"][0]["bottom"][1] = 0.5
+        with self.assertRaisesRegex(SceneValidationError, "楼梯底端高度应为起始楼面标高"):
+            validate_scene(scene)
+
     def test_self_intersecting_polygon_is_rejected(self):
         scene = school_scene()
         scene["id"] = "bad"
@@ -546,11 +626,11 @@ class Navigation3DTests(unittest.TestCase):
             {"outer": [[2.0, 3.6], [14.5, 3.6], [14.5, 4.1], [2.0, 4.1]]}
         ]
         scene["stairs"] = []
-        scene["exits"] = [{"id": "exit", "floor": "floor-2", "position": [10.0, 1.2, 3.9],
+        scene["exits"] = [{"id": "exit", "floor": "floor-2", "position": [10.0, 1.32, 3.9],
                            "width_m": 1.2}]
         scene["doors"] = [{
             "id": "door-room", "name": "房间门", "floor": "floor-2",
-            "position": [3.0, 1.2, 3.45], "width_m": 1.2, "normal": [0, 1],
+            "position": [3.0, 1.32, 3.45], "width_m": 1.2, "normal": [0, 1],
             "from_region": "room", "to_region": "corridor", "mode": "both",
             "initial_state": "open", "locked": False, "fire_block_threshold": .85,
             "auto_close_s": 4, "open_duration_s": .6,
@@ -561,7 +641,7 @@ class Navigation3DTests(unittest.TestCase):
             agent = sim.add_human("p1", "玩家", "#fff")
             # Start in the corridor and walk back through the shared doorway,
             # crossing the non-walkable seam between the two polygons.
-            agent.position = (3.0, 1.2, 3.9)
+            agent.position = (3.0, 1.32, 3.9)
             agent.region_id = "corridor"
             agent.nav_node = sim._nearest_nav_node("corridor", agent.position)
             sim.phase = "running"

@@ -37,6 +37,25 @@ class DataPersistenceError(RuntimeError):
     """Raised when experiment data could not be durably written."""
 
 
+def _restrict_file_descriptor(fd: int) -> None:
+    """Restrict newly-created files where POSIX descriptor permissions exist."""
+    if os.name != "nt":
+        os.fchmod(fd, 0o600)
+
+
+def _sync_directory(path: Path) -> None:
+    """Persist directory metadata where the platform supports directory handles."""
+    if os.name == "nt":
+        # Windows does not permit opening directories as file descriptors.
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    fd = os.open(path, flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 NPC_COLORS = [
     "#7a8bab", "#6e86b0", "#8090a8", "#748aa4",
     "#8a96b4", "#6a809c", "#7e8ca8", "#7088a8",
@@ -751,18 +770,13 @@ class EvacSim:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
         try:
-            os.fchmod(fd, 0o600)
+            _restrict_file_descriptor(fd)
             with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
                 handle.write(text)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(tmp_name, path)
-            dir_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-            dir_fd = os.open(path.parent, dir_flags)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
+            _sync_directory(path.parent)
         except Exception:
             with contextlib.suppress(FileNotFoundError):
                 os.unlink(tmp_name)

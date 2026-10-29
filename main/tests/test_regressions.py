@@ -1063,7 +1063,10 @@ class MainRobustnessTests(unittest.TestCase):
         asyncio.run(check())
 
     def test_readiness_checks_actual_data_volume(self):
-        payload = asyncio.run(main.readyz())
+        # Source checkouts omit the large GLB assets; model presence is tested
+        # separately, while this test isolates the readiness data volume.
+        with patch.object(main, "SCENE_DIR", Path("missing-scene-assets")):
+            payload = asyncio.run(main.readyz())
         self.assertEqual(payload["status"], "ready")
         self.assertTrue(payload["checks"]["maze"])
         self.assertTrue(payload["checks"]["simulation"])
