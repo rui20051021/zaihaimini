@@ -1160,7 +1160,14 @@ let cutawayEnabled=false,clipTop=Infinity;const floorClip=new THREE.Plane(new TH
 function updateFloorCutaway(){
  if(!root||!draft)return;const f=activeFloor();if(!f)return;
  const next=draft.floors.filter(x=>x.elevation_m>f.elevation_m).sort((a,b)=>a.elevation_m-b.elevation_m)[0];
- clipTop=next?next.elevation_m-.04:f.elevation_m+1.16;floorClip.constant=clipTop;
+ const previous=draft.floors.filter(x=>x.elevation_m<f.elevation_m).sort((a,b)=>b.elevation_m-a.elevation_m)[0];
+ const modelBox=new THREE.Box3().setFromObject(root),floorHeight=Number(f.elevation_m)||0;
+ // The last floor has no next slab to define a clipping plane. Use the
+ // measured story spacing to stop below the roof, which otherwise remains in
+ // the fallback full-model view and obscures the floor being calibrated.
+ const previousGap=previous?Math.max(.8,floorHeight-Number(previous.elevation_m)) : 1.2;
+ const lastFloorTop=Math.min(modelBox.max.y-.02,floorHeight+clamp(previousGap*.78,.72,1.0));
+ clipTop=next?Number(next.elevation_m)-.04:Math.max(floorHeight+.72,lastFloorTop);floorClip.constant=clipTop;
  root.traverse(o=>{if(o.isMesh)for(const m of Array.isArray(o.material)?o.material:[o.material])if(m){const before=m.clippingPlanes?.length||0;m.clippingPlanes=cutawayEnabled?[floorClip]:[];if(before!==m.clippingPlanes.length)m.needsUpdate=true;}});
  if(cutawayEnabled)orbit.target.y=(f.elevation_m+clipTop)/2;
 }
