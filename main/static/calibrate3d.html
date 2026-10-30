@@ -6,7 +6,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23315dff'%20stroke-width='1.8'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M10%2012h4'/%3E%3Cpath%20d='M10%208h4'/%3E%3Cpath%20d='M14%2021v-3a2%202%200%200%200-4%200v3'/%3E%3Cpath%20d='M6%2010H4a2%202%200%200%200-2%202v7a2%202%200%200%200%202%202h16a2%202%200%200%200%202-2V9a2%202%200%200%200-2-2h-2'/%3E%3Cpath%20d='M6%2021V5a2%202%200%200%201%202-2h8a2%202%200%200%201%202%202v16'/%3E%3C/svg%3E">
 <script type="importmap">{"imports":{"three":"/static/vendor/three.module.js"}}</script>
 <link rel="modulepreload" href="/static/vendor/three.module.js"><link rel="modulepreload" href="/static/vendor/GLTFLoader.js"><link rel="modulepreload" href="/static/vendor/meshopt_decoder.module.js">
-<link rel="stylesheet" href="/static/spatial-ui.css?v=20261029a">
+<link rel="stylesheet" href="/static/spatial-ui.css?v=20261030-floor-height">
 <link rel="modulepreload" href="/static/utils/spatial-ui.mjs?v=20261026a"><link rel="modulepreload" href="/static/utils/lucide-icons.mjs?v=20261026a">
 <style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}button,input,select{font:inherit}.load-progress{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);padding:15px 18px;width:min(310px,80vw);font-size:12px}.bar{height:3px;background:#e4eaf4;border-radius:10px;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;width:35%;background:#315dff;transition:width .3s}.indeterminate .bar i{animation:loading 1.2s ease-in-out infinite}@keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(390%)}}</style>
 </head>
@@ -57,9 +57,9 @@
  <section class="sheet-section" data-step="floor">
   <label class="measure-help" for="floorSelect">当前编辑楼层</label><select id="floorSelect" style="margin:8px 0"></select>
   <div class="row"><label for="floorName">楼层名称</label><input id="floorName" value="一层" maxlength="80" autocomplete="off"></div>
-  <div class="row"><label for="floorElevation">楼面高度 (m)</label><input id="floorElevation" type="number" value="0" step="0.01"></div>
+  <div class="row"><label for="floorElevation">楼面高度 (m)</label><input id="floorElevation" type="number" value="0" step="0.01" aria-describedby="floorReference"></div>
   <div class="floor-actions"><button id="updateFloor" type="button">更新当前层</button><button id="addFloor" type="button">新增楼层</button><button id="removeFloor" type="button" class="danger-outline">删除当前层</button></div>
-  <p class="muted floor-help">修改名称或高度后点“更新当前层”；门、出口与楼梯端点会随楼层高度同步移动。</p>
+  <p id="floorReference" class="muted floor-help">模型楼面参考高度将在读取场景后显示。</p>
   <div id="floorList" class="list"></div>
   <h3>绘制范围</h3><p class="muted">选择可走区或起始区，沿边界点击至少 3 个点，再点“完成绘制”。标记障碍时，先点击它所属的可走区内部，再沿不可通行边界逐点圈定。</p>
  </section>
@@ -237,16 +237,54 @@ function drawRing(r,color,y,options={}){
 }
 function activeFloor(){return draft?.floors?.find(f=>f.id===activeFloorId)}
 function drawingFloor(){return draft?.floors?.find(f=>f.id===drawingFloorId)||activeFloor()}
+const schoolFloorReferences=[.12,1.32,2.52,3.72];
+function floorIndex(floor){return (draft?.floors||[]).slice().sort((a,b)=>Number(a.elevation_m)-Number(b.elevation_m)).findIndex(item=>item.id===floor?.id)}
+function modelFloorReference(floor){
+ if(!floor||sceneId!=='school')return null;
+ const existingIndex=floorIndex(floor),idMatch=/^floor-(\d+)$/.exec(String(floor.id||''));
+ const index=existingIndex>=0?existingIndex:idMatch?Number(idMatch[1])-1:-1;
+ const value=schoolFloorReferences[index];
+ return Number.isFinite(value)?value:null;
+}
+function floorHeightGuidance(floor,elevation=Number(floor?.elevation_m)){
+ if(!floor||!Number.isFinite(elevation))return {reference:null,text:'请输入该层相对统一基准的绝对楼面高度。',warning:''};
+ const reference=modelFloorReference(floor),parts=[];
+ if(reference!==null){
+  parts.push(`模型参考楼面：${reference.toFixed(2)} m`);
+  const delta=Math.abs(elevation-reference);
+  if(delta>=.08)parts.push(`当前值与模型参考相差 ${delta.toFixed(2)} m`);
+ }
+ const neighbors=(draft?.floors||[]).filter(other=>other.id!==floor.id&&Number.isFinite(Number(other.elevation_m))).sort((a,b)=>Math.abs(Number(a.elevation_m)-elevation)-Math.abs(Number(b.elevation_m)-elevation));
+ const neighbor=neighbors[0],gap=neighbor?Math.abs(Number(neighbor.elevation_m)-elevation):Infinity;
+ const warning=[];
+ if(neighbor&&gap<.5)warning.push(`与${neighbor.name||'相邻楼层'}仅相差 ${gap.toFixed(2)} m，绘制平面可能视觉重叠`);
+ if(reference!==null&&Math.abs(elevation-reference)>=.08)warning.push(`请确认该层是否应为 ${reference.toFixed(2)} m；当前高度可能把标注贴到错误楼层`);
+ return {reference,text:parts.join(' · ')||'请输入该层相对统一基准的绝对楼面高度。',warning:warning.join('；')};
+}
+function refreshFloorReference(floor=activeFloor(),elevation=Number($('#floorElevation')?.value)){
+ const el=$('#floorReference');if(!el)return;
+ const guidance=floorHeightGuidance(floor,elevation);
+ el.textContent=guidance.warning?`${guidance.text}。警告：${guidance.warning}。修改名称或高度后点“更新当前层”；门、出口与楼梯端点会随楼层高度同步移动。`:`${guidance.text}。修改名称或高度后点“更新当前层”；门、出口与楼梯端点会随楼层高度同步移动。`;
+ el.dataset.state=guidance.warning?'warning':'normal';
+}
+function floorInputTarget(){
+ const name=String($('#floorName')?.value||'').trim(),active=activeFloor();
+ if(active&&name===String(active.name||'').trim())return active;
+ let index=(draft?.floors?.length||0)+1;while(draft?.floors?.some(f=>f.id===`floor-${index}`))index++;
+ return {id:`floor-${index}`,name,elevation_m:Number($('#floorElevation')?.value)};
+}
 function nearbyFloorWarning(floor){
  if(!floor||!draft?.floors?.length)return '';
  const elevation=Number(floor.elevation_m);if(!Number.isFinite(elevation))return '';
+ const guidance=floorHeightGuidance(floor,elevation);
+ if(guidance.warning)return guidance.warning;
  const neighbor=draft.floors.filter(other=>other.id!==floor.id&&Number.isFinite(Number(other.elevation_m))).sort((a,b)=>Math.abs(Number(a.elevation_m)-elevation)-Math.abs(Number(b.elevation_m)-elevation))[0];
  if(!neighbor)return '';
  const gap=Math.abs(Number(neighbor.elevation_m)-elevation);
  return gap<.5?`与${neighbor.name||'相邻楼层'}仅相差 ${gap.toFixed(2)} m，绘制平面可能视觉贴近该层，请确认楼面标高。`:'';
 }
 function floorTargetLabel(floor){return floor?`目标：${floor.name||floor.id}（${Number(floor.elevation_m).toFixed(2)} m）`:''}
-function fillFloorOptions(select,keep){const prev=keep?select.value:'';select.innerHTML=(draft?.floors||[]).map(f=>`<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${escapeHtml(f.elevation_m)}m)</option>`).join('');if(prev&&(draft?.floors||[]).some(f=>f.id===prev))select.value=prev;}function rebuildFloorSelect(){const select=$('#floorSelect');fillFloorOptions(select,true);if(!activeFloorId&&draft?.floors?.length)activeFloorId=draft.floors[0].id;if(activeFloorId)select.value=activeFloorId;const editingFloor=activeFloor();if(editingFloor){$('#floorName').value=editingFloor.name||'';$('#floorElevation').value=editingFloor.elevation_m};const fromSel=$('#stairFromSelect'),toSel=$('#stairToSelect');fillFloorOptions(fromSel,true);fillFloorOptions(toSel,true);if(draft?.floors?.length){if(!fromSel.value)fromSel.value=draft.floors[0].id;if(!toSel.value||toSel.value===fromSel.value)toSel.value=(draft.floors.find(f=>f.id!==fromSel.value)||draft.floors[0]).id;}$('#floorList').innerHTML=(draft?.floors||[]).map(f=>`<div><b>${escapeHtml(f.name)}</b> · ${escapeHtml(f.elevation_m)}m · ${(f.walkable||[]).length} 个可走区 · ${(f.spawn_zones||[]).length} 个起始区</div>`).join('');refreshDoorRegions();paintFloorDock();}
+function fillFloorOptions(select,keep){const prev=keep?select.value:'';select.innerHTML=(draft?.floors||[]).map(f=>`<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)} (${escapeHtml(f.elevation_m)}m)</option>`).join('');if(prev&&(draft?.floors||[]).some(f=>f.id===prev))select.value=prev;}function rebuildFloorSelect(){const select=$('#floorSelect');fillFloorOptions(select,true);if(!activeFloorId&&draft?.floors?.length)activeFloorId=draft.floors[0].id;if(activeFloorId)select.value=activeFloorId;const editingFloor=activeFloor();if(editingFloor){$('#floorName').value=editingFloor.name||'';$('#floorElevation').value=editingFloor.elevation_m}refreshFloorReference(editingFloor,Number($('#floorElevation')?.value));const fromSel=$('#stairFromSelect'),toSel=$('#stairToSelect');fillFloorOptions(fromSel,true);fillFloorOptions(toSel,true);if(draft?.floors?.length){if(!fromSel.value)fromSel.value=draft.floors[0].id;if(!toSel.value||toSel.value===fromSel.value)toSel.value=(draft.floors.find(f=>f.id!==fromSel.value)||draft.floors[0]).id;}$('#floorList').innerHTML=(draft?.floors||[]).map(f=>{const reference=modelFloorReference(f);return `<div><b>${escapeHtml(f.name)}</b> · ${escapeHtml(f.elevation_m)}m · ${(f.walkable||[]).length} 个可走区 · ${(f.spawn_zones||[]).length} 个起始区${reference!==null?` · 模型参考 ${reference.toFixed(2)}m`:''}</div>`}).join('');refreshDoorRegions();paintFloorDock();}
 
 function pick(e,floorOverride=null){
  const rect=canvas.getBoundingClientRect();pointer.x=(e.clientX-rect.left)/rect.width*2-1;pointer.y=-(e.clientY-rect.top)/rect.height*2+1;raycaster.setFromCamera(pointer,camera);
@@ -450,7 +488,8 @@ function refreshValidationChecklist(){
 function doorNormalFor(floor,fromId,toId){const a=floor?.walkable?.find(r=>r.id===fromId),b=floor?.walkable?.find(r=>r.id===toId);if(!a||!b)return [1,0];const ac=ringCenter(a.outer),bc=ringCenter(b.outer);const dx=bc[0]-ac[0],dz=bc[1]-ac[1],length=Math.hypot(dx,dz);return length>1e-6?[dx/length,dz/length]:[1,0]}
 function closeRing(){
  if(mode==='stair'){setStatus(stairPath.length?'继续点击上行踏面或平台拐点；最后点击目标楼层可走区内的顶端即可完成，撤销可逐点回退':'请先点击起点楼层可走区内的楼梯底端','warn');return}
- const f=['floor','hole','spawn'].includes(mode)?drawingFloor():activeFloor();if(!f){setStatus('请先选择楼层并绘制可走区','err');return}
+ const lockedFloorId=drawingFloorId, f=['floor','hole','spawn'].includes(mode)?drawingFloor():activeFloor();if(!f){setStatus('请先选择楼层并绘制可走区','err');return}
+ if(lockedFloorId&&f.id!==lockedFloorId){setStatus('当前轮廓的楼层归属已失效，请撤销后重新选择楼层绘制','err');points=[];drawingFloorId=null;setModes();return}
  if(!['floor','hole','spawn'].includes(mode)){setStatus('当前工具不生成轮廓。请先选择可走区、障碍或起始区','warn');return}
  if(!f.walkable?.length&&mode!=='floor'){setStatus('请先绘制一个可走区，再标记障碍或起始区','err');return}
  const ring=points.map(p=>[p[0],p[2]]),issue=drawingIssue(mode,ring,f);
@@ -461,7 +500,7 @@ function closeRing(){
  if(mode==='floor'){let index=f.walkable.length+1;while(f.walkable.some(r=>r.id===`${f.id}-region-${index}`))index++;f.walkable.push({id:`${f.id}-region-${index}`,outer:ring,holes:[]})}
  else if(mode==='hole'){const r=f.walkable.find(r=>r.id===holeRegionId);r.holes.push(ring)}
  else{f.spawn_zones=f.spawn_zones||[];let index=f.spawn_zones.length+1;while(f.spawn_zones.some(z=>z.id===`${f.id}-spawn-${index}`))index++;f.spawn_zones.push({id:`${f.id}-spawn-${index}`,outer:ring})}
- points=[];holeRegionId=null;drawingFloorId=null;mode='orbit';setModes();syncUndoButton();rebuildFloorSelect();redraw();markDirty();setStatus(`${label}已添加到 ${f.name||f.id}（${Number(f.elevation_m).toFixed(2)} m），可撤销`,'ok');
+ const committedFloorId=f.id,committedElevation=Number(f.elevation_m);points=[];holeRegionId=null;drawingFloorId=null;mode='orbit';setModes();syncUndoButton();rebuildFloorSelect();redraw();markDirty();setStatus(`${label}已添加到 ${f.name||f.id}（${committedElevation.toFixed(2)} m，${committedFloorId}），可撤销`,'ok');
 }
 function syncToolState(){
  refreshActionState();
@@ -675,7 +714,7 @@ canvas.addEventListener('contextmenu',e=>e.preventDefault());
 
 function updateMeasure(){if(measurePoints.length===2){const d=Math.hypot(measurePoints[0][0]-measurePoints[1][0],measurePoints[0][1]-measurePoints[1][1],measurePoints[0][2]-measurePoints[1][2]);$('#measureReadout').textContent=`模型两点距离：${d.toFixed(4)} 个当前米制单位\n填写真实长度后点击“应用尺度”。`;$('#referenceInput').dataset.raw=d}else $('#measureReadout').textContent='请点击“测量”，再点击模型上的已知长度两端。';refreshActionState()}
 $('#applyScale').onclick=()=>{const raw=Number($('#referenceInput').dataset.raw),real=Number($('#referenceInput').value);if(!(raw>0&&real>0)){setStatus('请先选取两点并填写真实长度','err');return}const oldScale=Number(draft.transform.scale_m_per_unit)||1,newScale=oldScale*real/raw;if(!(newScale>0&&Number.isFinite(newScale))){setStatus('比例计算结果无效，请重新测量','err');return}pushUndo('应用真实尺度');draft.transform.scale_m_per_unit=newScale;draft.scale={...(draft.scale||{}),status:'verified',reference_length_m:real,note:'已通过已知长度标定；楼层高度与通路仍需按真实尺寸复核。'};draft.annotation_recheck={...(draft.annotation_recheck||{}),prior_scale_m_per_unit:oldScale,sync_pending:true};markAnnotationRecheck('比例已更新。模型尺寸发生变化，但已有标注坐标不会自动重算。可先用“同步标注到当前比例”换算平面坐标，再逐层核对可走区、障碍、门、楼梯与出口；楼面标高须单独核对。');applyTransform();measurePoints=[];delete $('#referenceInput').dataset.raw;updateMeasure();redraw();syncUndoButton();markDirty();refreshAnnotationSync();setStatus('真实尺度已应用；现有标注尚未变换，请先同步或逐层重新绘制','ok')};$('#clearMeasure').onclick=()=>{measurePoints=[];delete $('#referenceInput').dataset.raw;updateMeasure();redraw();syncUndoButton()};
-$('#referenceInput').addEventListener('input',refreshActionState);$('#fileInput').addEventListener('change',refreshActionState);$('#tokenInput').addEventListener('input',refreshActionState);$('#floorName').addEventListener('input',refreshActionState);$('#floorElevation').addEventListener('input',refreshActionState);
+$('#referenceInput').addEventListener('input',refreshActionState);$('#fileInput').addEventListener('change',refreshActionState);$('#tokenInput').addEventListener('input',refreshActionState);$('#floorName').addEventListener('input',()=>{refreshActionState();refreshFloorReference(floorInputTarget(),Number($('#floorElevation')?.value))});$('#floorElevation').addEventListener('input',()=>{refreshActionState();refreshFloorReference(floorInputTarget(),Number($('#floorElevation')?.value))});
 $('#addFloor').onclick=()=>{
  if(!draft)return;
  const n=$('#floorName').value.trim(),e=Number($('#floorElevation').value);
@@ -683,9 +722,10 @@ $('#addFloor').onclick=()=>{
  if(!Number.isFinite(e)||Math.abs(e)>1000){setStatus('楼面高度必须是 -1000 到 1000 米之间的有限数值','err');$('#floorElevation').focus();return}
  if(draft.floors.some(f=>String(f.name||'').trim()===n)){setStatus(`楼层名称“${n}”已存在，请换一个名称`,'err');$('#floorName').focus();return}
  if(draft.floors.some(f=>Math.abs(Number(f.elevation_m)-e)<.009)){setStatus(`已有楼面高度 ${e.toFixed(2)} m；请先确认两层的实际标高`,'err');$('#floorElevation').focus();return}
+ const draftFloor={id:`floor-${draft.floors.length+1}`,name:n,elevation_m:e};const guidance=floorHeightGuidance(draftFloor,e);if(guidance.warning&&!window.confirm(`楼层高度提示：${guidance.warning}。\n\n仍要新增这个楼层吗？`)){setStatus('已取消新增楼层，请先确认楼面高度','warn');$('#floorElevation').focus();return}
  pushUndo('新增楼层');let index=draft.floors.length+1;while(draft.floors.some(f=>f.id===`floor-${index}`))index++;const id=`floor-${index}`;
  draft.floors.push({id,name:n,elevation_m:e,walkable:[],spawn_zones:[]});draft.floors.sort((a,b)=>a.elevation_m-b.elevation_m);
- activeFloorId=id;rebuildFloorSelect();redraw();markDirty();setStatus(`已新增 ${n}，请继续绘制可走区；可撤销`,'ok');
+ activeFloorId=id;rebuildFloorSelect();redraw();markDirty();setStatus(`已新增 ${n}（${e.toFixed(2)} m），请继续绘制可走区；可撤销`,'ok');
 };
 function remapStairHeight(stair,floorId,from,to){
  const a=Array.isArray(stair.path)?stair.path:[];
@@ -705,6 +745,7 @@ function updateActiveFloor(){
  if(!Number.isFinite(elevation)||Math.abs(elevation)>1000){setStatus('楼面高度必须是 -1000 到 1000 米之间的有限数值','err');$('#floorElevation').focus();return false}
  if(draft.floors.some(f=>f.id!==floor.id&&String(f.name||'').trim()===name)){setStatus(`楼层名称“${name}”已被其他楼层使用`,'err');$('#floorName').focus();return false}
  if(draft.floors.some(f=>f.id!==floor.id&&Math.abs(Number(f.elevation_m)-elevation)<.009)){setStatus(`楼面高度 ${elevation.toFixed(2)} m 已被其他楼层使用`,'err');$('#floorElevation').focus();return false}
+ const guidance=floorHeightGuidance(floor,elevation);if(guidance.warning&&!window.confirm(`楼层高度提示：${guidance.warning}。\n\n仍要更新当前层吗？`)){setStatus('已取消更新，请先确认楼面高度','warn');$('#floorElevation').focus();return false}
  const oldElevation=Number(floor.elevation_m)||0;
  if(floor.name===name&&Math.abs(oldElevation-elevation)<1e-9){setStatus('楼层名称与高度均未变化','warn');return false}
  pushUndo(`更新楼层 ${floor.name||floor.id}`);
@@ -732,7 +773,7 @@ $('#updateFloor').onclick=updateActiveFloor;
 $('#floorName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#floorElevation').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#removeFloor').onclick=()=>{if(!activeFloorId||!draft)return;if(draft.floors.length<=1){setStatus('场景至少需要保留一层','warn');return}const f=activeFloor();pushUndo(`删除楼层 ${f?.name||activeFloorId}`);draft.floors=draft.floors.filter(x=>x.id!==activeFloorId);draft.stairs=(draft.stairs||[]).filter(s=>s.from_floor!==activeFloorId&&s.to_floor!==activeFloorId);draft.doors=(draft.doors||[]).filter(d=>d.floor!==activeFloorId);draft.exits=(draft.exits||[]).filter(e=>e.floor!==activeFloorId);activeFloorId=draft.floors[0]?.id||null;selected=null;rebuildFloorSelect();redraw();markDirty();setStatus('楼层已删除，可撤销','ok')};
-$('#floorSelect').onchange=e=>{const nextId=e.target.value;if(drawingFloorId&&points.length&&nextId!==drawingFloorId){e.target.value=drawingFloorId;const locked=drawingFloor();setStatus(`当前正在${locked?.name||'当前楼层'}绘制，已锁定本轮轮廓归属。请先完成或撤销当前轮廓，再切换楼层`,'warn');return}activeFloorId=nextId;if(['floor','hole','spawn'].includes(mode))drawingFloorId=activeFloorId;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
+$('#floorSelect').onchange=e=>{const nextId=e.target.value;if(drawingFloorId&&points.length&&nextId!==drawingFloorId){e.target.value=drawingFloorId;const locked=drawingFloor();setStatus(`当前正在${locked?.name||'当前楼层'}绘制，已锁定本轮轮廓归属。请先完成或撤销当前轮廓，再切换楼层`,'warn');return}activeFloorId=nextId;if(['floor','hole','spawn'].includes(mode))drawingFloorId=activeFloorId;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshFloorReference(f,Number(f?.elevation_m));refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
 $('#viewHomeBtn').onclick=resetView;$('#orbitBtn').onclick=()=>chooseMode('orbit');$('#editBtn').onclick=()=>chooseMode('edit');$('#measureBtn').onclick=()=>chooseMode('measure');$('#floorBtn').onclick=()=>chooseMode('floor');$('#holeBtn').onclick=()=>chooseMode('hole');$('#doorBtn').onclick=()=>chooseMode('door');$('#stairBtn').onclick=()=>chooseMode('stair');$('#exitBtn').onclick=()=>chooseMode('exit');$('#spawnBtn').onclick=()=>chooseMode('spawn');$('#finishBtn').onclick=closeRing;$('#backBtn').onclick=()=>location.href='/';$('#reloadBtn').onclick=()=>loadModel();$('#tokenSave').onclick=()=>{token=$('#tokenInput').value.trim();localStorage.setItem('maze_admin_token',token);setStatus('管理令牌已保存','ok');loadDraft()};
 $('#useCalibrationModel').onclick=()=>useCalibrationModel();
 $('#uploadBtn').onclick=async()=>{const file=$('#fileInput').files[0];if(!file){setStatus('请选择 .glb 文件','err');return}try{setStatus('正在上传 GLB…');const r=await fetch(`/api/scenes/upload?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{...authHeaders()},body:file});const d=await r.json();if(!r.ok)throw new Error(d.detail||`上传失败 ${r.status}`);sceneId=d.id;history.replaceState(null,'',`/calibrate?scene=${sceneId}`);await loadDraft();setStatus('上传成功，已创建临时比例草稿','ok')}catch(e){setStatus(e.message,'err')}};
@@ -761,6 +802,7 @@ async function loadDraft(){
   const server=await api(`/api/scenes/${sceneId}/calibration`);
   serverBaseline=clone(server);draft=clone(server);savedSnapshot=snapshotDraft();draftKey=draftStorageKey();
   activeFloorId=draft.floors?.[0]?.id||null;drawingFloorId=null;undoStack=[];selected=null;points=[];measurePoints=[];stairPath=[];refreshStairDraftStatus();mode='orbit';navPreview=null;smokePreview=null;
+  clearLegacyStoredDraft();
   const stored=readStoredDraft();
   if(stored&&baseSnapshotFromStored(stored)===savedSnapshot&&JSON.stringify(stored.draft)!==savedSnapshot){
    const when=Number(stored.savedAt)?new Date(stored.savedAt).toLocaleString('zh-CN'):'此前';
@@ -778,7 +820,8 @@ async function loadDraft(){
 }
 function nextObjectId(objects,prefix){let index=objects.length+1;while(objects.some(object=>object.id===`${prefix}-${index}`))index++;return `${prefix}-${index}`}
 function clone(value){return JSON.parse(JSON.stringify(value))}
-function draftStorageKey(){return `maze:calibration:draft:${sceneId}:v1`}
+function draftStorageKey(){return `maze:calibration:draft:${sceneId}:v2`}
+function legacyDraftStorageKey(){return `maze:calibration:draft:${sceneId}:v1`}
 function snapshotDraft(){return JSON.stringify(draft||{})}
 function setDraftState(state,text){
  const el=$('#draftState'),label=$('#draftStateText');if(!el||!label)return;
@@ -852,6 +895,7 @@ function persistDraft(){
 }
 function readStoredDraft(){try{const raw=localStorage.getItem(draftStorageKey());if(!raw)return null;const item=JSON.parse(raw);if(!item||!item.draft||typeof item.draft!=='object')return null;return item}catch(e){return null}}
 function clearStoredDraft(){try{localStorage.removeItem(draftStorageKey())}catch(e){}}
+function clearLegacyStoredDraft(){try{localStorage.removeItem(legacyDraftStorageKey())}catch(e){}}
 function baseSnapshotFromStored(stored){return stored&&typeof stored.base==='string'?stored.base:''}
 function refreshStairDraftStatus(){
  const el=$('#stairDraftStatus');if(!el)return;
