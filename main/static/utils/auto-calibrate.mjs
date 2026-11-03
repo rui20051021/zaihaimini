@@ -1,4 +1,4 @@
-const WORKER_URL = '/static/utils/auto-calibrate-worker.mjs?v=20261102d';
+const WORKER_URL = '/static/utils/auto-calibrate-worker.mjs?v=20261103b';
 
 function transformVertex(attribute, index, elements) {
   // Position accessors may be interleaved with normals or UVs and may use
@@ -17,6 +17,72 @@ function transformVertex(attribute, index, elements) {
  * Flatten the loaded Three.js scene into world-space triangles. The worker
  * should never need to know about Three.js objects or model hierarchy.
  */
+function finiteNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function textureFingerprint(texture) {
+  if (!texture) return null;
+  const image = texture.image || {};
+  const source = texture.source?.data || image;
+  const name = String(texture.name || image.name || '');
+  const sourceId = String(texture.userData?.sourceId || source?.src || source?.url || '');
+  const width = finiteNumber(source?.width ?? image.width, 0);
+  const height = finiteNumber(source?.height ?? image.height, 0);
+  return [
+    name,
+    sourceId,
+    width,
+    height,
+    finiteNumber(texture.offset?.x, 0).toFixed(6),
+    finiteNumber(texture.offset?.y, 0).toFixed(6),
+    finiteNumber(texture.repeat?.x, 1).toFixed(6),
+    finiteNumber(texture.repeat?.y, 1).toFixed(6),
+    finiteNumber(texture.rotation, 0).toFixed(6),
+    finiteNumber(texture.center?.x, 0).toFixed(6),
+    finiteNumber(texture.center?.y, 0).toFixed(6),
+    String(texture.wrapS ?? ''),
+    String(texture.wrapT ?? ''),
+    String(texture.colorSpace || ''),
+    String(texture.channel ?? ''),
+  ].join('|');
+}
+
+/**
+ * Build a stable material key from render-relevant properties. Three.js
+ * assigns a new UUID when the same GLB material is loaded again, so UUIDs
+ * cannot identify semantic materials across repeated analyses.
+ */
+export function materialSemanticFingerprint(material) {
+  if (!material) return 'none';
+  const color = material.color || {};
+  const emissive = material.emissive || {};
+  const maps = {};
+  for (const key of [
+    'map', 'alphaMap', 'aoMap', 'bumpMap', 'normalMap', 'roughnessMap',
+    'metalnessMap', 'emissiveMap', 'displacementMap', 'lightMap',
+  ]) {
+    maps[key] = textureFingerprint(material[key]);
+  }
+  return JSON.stringify({
+    name: String(material.name || ''),
+    type: String(material.type || material.constructor?.name || ''),
+    color: [color.r, color.g, color.b].map((value) => finiteNumber(value, 0).toFixed(6)),
+    roughness: finiteNumber(material.roughness, 1).toFixed(6),
+    metalness: finiteNumber(material.metalness, 0).toFixed(6),
+    opacity: finiteNumber(material.opacity, 1).toFixed(6),
+    transparent: Boolean(material.transparent),
+    alphaTest: finiteNumber(material.alphaTest, 0).toFixed(6),
+    side: String(material.side ?? ''),
+    depthWrite: Boolean(material.depthWrite),
+    depthTest: Boolean(material.depthTest),
+    vertexColors: Boolean(material.vertexColors),
+    emissive: [emissive.r, emissive.g, emissive.b].map((value) => finiteNumber(value, 0).toFixed(6)),
+    emissiveIntensity: finiteNumber(material.emissiveIntensity, 1).toFixed(6),
+    maps,
+  });
+}
 export function collectWorldGeometry(root) {
   if (!root) throw new Error('建筑模型尚未加载完成');
   root.updateMatrixWorld(true);
@@ -37,6 +103,19 @@ export function collectWorldGeometry(root) {
 
   const positions = new Float32Array(vertexCount * 3);
   const indices = new Uint32Array(indexCount);
+  const triangleMaterialIds = new Int32Array(indexCount / 3);
+  triangleMaterialIds.fill(-1);
+  const materialNames = [];
+  const materialIndex = new Map();
+  const resolveMaterial = (material) => {
+    if (!material) return -1;
+    const key = materialSemanticFingerprint(material);
+    if (!materialIndex.has(key)) {
+      materialIndex.set(key, materialNames.length);
+      materialNames.push(String(material.name || material.uuid || ('材质 ' + (materialNames.length + 1))));
+    }
+    return materialIndex.get(key);
+  };
   let vertexOffset = 0;
   let indexOffset = 0;
   for (const { object, position, indices: sourceIndices, triangles } of meshes) {
@@ -51,11 +130,17 @@ export function collectWorldGeometry(root) {
       positions[target + 1] = value[1];
       positions[target + 2] = value[2];
     }
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    const materialIds = materials.map(resolveMaterial);
+    const groups = Array.isArray(object.geometry.groups) ? object.geometry.groups : [];
     for (let triangle = 0; triangle < triangles; triangle += 1) {
       const a = vertexOffset + (sourceIndices ? sourceIndices.getX(triangle * 3) : triangle * 3);
       const b = vertexOffset + (sourceIndices ? sourceIndices.getX(triangle * 3 + 1) : triangle * 3 + 1);
       const c = vertexOffset + (sourceIndices ? sourceIndices.getX(triangle * 3 + 2) : triangle * 3 + 2);
       const target = indexOffset + triangle * 3;
+      const start = triangle * 3;
+      const group = groups.find((item) => start >= item.start && start < item.start + item.count);
+      triangleMaterialIds[indexOffset / 3 + triangle] = group ? (materialIds[group.materialIndex] ?? -1) : (materialIds[0] ?? -1);
       indices[target] = a;
       indices[target + 1] = mirrored ? c : b;
       indices[target + 2] = mirrored ? b : c;
@@ -63,7 +148,7 @@ export function collectWorldGeometry(root) {
     vertexOffset += position.count;
     indexOffset += triangles * 3;
   }
-  return { positions, indices, triangleCount: indexCount / 3, vertexCount };
+  return { positions, indices, materialIds: triangleMaterialIds, materialNames, triangleCount: indexCount / 3, vertexCount };
 }
 
 export function analyzeInWorker(payload, onProgress) {
@@ -91,7 +176,14 @@ export function analyzeInWorker(payload, onProgress) {
   };
   worker.onerror = (event) => finish(rejectResult, new Error(event.message || '自动分析 Worker 失败'));
   const transfer = [payload.positions.buffer, payload.indices.buffer];
-  worker.postMessage({ type: 'analyze', requestId, positions: payload.positions, indices: payload.indices, options: payload.options || {} }, transfer);
+  if (payload.materialIds?.buffer) transfer.push(payload.materialIds.buffer);
+  worker.postMessage({
+    type: 'analyze', requestId,
+    positions: payload.positions, indices: payload.indices,
+    materialIds: payload.materialIds || null,
+    materialNames: Array.isArray(payload.materialNames) ? payload.materialNames : [],
+    options: payload.options || {},
+  }, transfer);
   return {
     promise,
     cancel() {

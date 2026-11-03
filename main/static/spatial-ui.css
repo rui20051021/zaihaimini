@@ -272,6 +272,66 @@ body.silver-ui{background:#eaf0f7;color:var(--ink);font-family:Inter,"Segoe UI",
 .calibration-ui .auto-replace-impact{display:grid;gap:3px;margin:0 0 6px;padding:7px 8px;border:1px solid #ecd3a5;border-left:3px solid #c19145;border-radius:3px 7px 7px 3px;background:linear-gradient(110deg,#fff9ed,#fffdf8);color:#7e602f;font-size:8px;line-height:1.6;overflow-wrap:anywhere}
 .calibration-ui .auto-replace-impact[hidden]{display:none!important}
 .calibration-ui .auto-replace-impact::before{content:"替换影响";color:#9c7131;font-size:7px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+/* Roof / terrace exclusions are an audit layer. They stay out of the draft
+   until an operator explicitly restores a real walkable surface. */
+.calibration-ui .auto-exclusion-group{display:grid;gap:6px;min-width:0}
+.calibration-ui .auto-exclusion-group[hidden]{display:none!important}
+.calibration-ui .auto-exclusion-heading{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:2px 1px 4px;color:#6f5731}
+.calibration-ui .auto-exclusion-heading strong{font-size:9.5px;font-weight:700;letter-spacing:.02em}
+.calibration-ui .auto-exclusion-heading span{font:7.5px/1.4 "Cascadia Code",Consolas,monospace;color:#97794c;text-align:right}
+.calibration-ui .auto-exclusion-card{position:relative;display:grid;gap:6px;min-width:0;padding:9px 9px 8px;overflow:hidden;border:1px solid #e6d2ad;border-radius:10px;background:linear-gradient(135deg,#fffaf0,#fffdf8 72%);box-shadow:inset 0 1px 0 #fff}
+.calibration-ui .auto-exclusion-card::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:linear-gradient(#d5a448,#b7791f);opacity:.9}
+.calibration-ui .auto-exclusion-title{display:flex;align-items:center;flex-wrap:wrap;gap:5px 7px;min-width:0}
+.calibration-ui .auto-exclusion-badge{display:inline-flex;align-items:center;gap:3px;flex:0 0 auto;padding:3px 5px;border:1px solid #ead7b5;border-radius:5px;background:#fff6e3;color:#956a25;font-size:7.5px;line-height:1.2;letter-spacing:.02em}
+.calibration-ui .auto-exclusion-badge .lucide{width:10px;height:10px;min-width:10px}
+.calibration-ui .auto-exclusion-title>strong{min-width:0;overflow:hidden;text-overflow:ellipsis;color:#674f2b;font-size:10px;line-height:1.35;font-weight:700}
+.calibration-ui .auto-exclusion-title>em{margin-left:auto;font:normal 9px/1.3 "Cascadia Code",Consolas,monospace;color:#866530;font-variant-numeric:tabular-nums}
+.calibration-ui .auto-exclusion-meta{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.calibration-ui .auto-exclusion-meta>span{min-width:0;padding:3px 5px;border-radius:4px;background:#f9f0dd;color:#8a734d;font-size:7.5px;line-height:1.45;overflow-wrap:anywhere}
+.calibration-ui .auto-exclusion-meta b{color:#6b532e;font-weight:650}
+.calibration-ui .auto-exclusion-reason{margin:0;color:#806b48;font-size:8.5px;line-height:1.6}
+.calibration-ui .auto-exclusion-warnings{display:grid;gap:2px;margin:0;padding:0;list-style:none}
+.calibration-ui .auto-exclusion-warnings li{padding:4px 6px;border-left:2px solid #d6ad64;border-radius:2px 5px 5px 2px;background:#fff5df;color:#7d6338;font-size:8px;line-height:1.5;overflow-wrap:anywhere}
+.calibration-ui .auto-exclusion-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-top:1px}
+.calibration-ui .auto-exclusion-action{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:0;min-height:34px;padding:6px 7px;border:1px solid #dfc9a2;background:#fffdf8;color:#7f602b;font-size:8.5px;line-height:1.35;white-space:normal;text-align:center}
+.calibration-ui .auto-exclusion-action:hover{background:#fff8e9;border-color:#c9ab75;color:#65491c}
+.calibration-ui .auto-exclusion-action.is-primary{border-color:#d2b57e;background:#fff7e7;color:#775421}
+.calibration-ui .auto-exclusion-action .lucide{width:13px;height:13px;min-width:13px}
+.calibration-ui .auto-exclusion-footnote{margin:0;color:#9a8562;font-size:7.5px;line-height:1.55}
+
+.calibration-ui .auto-exclusion-card.is-restored{border-color:#d5ad65;background:linear-gradient(135deg,#fff7e8,#fffcfa 72%);box-shadow:inset 0 1px 0 #fff,0 0 0 1px #fff8e8}
+.calibration-ui .auto-exclusion-card.is-restored::before{width:4px;background:linear-gradient(#d69b32,#a96b16)}
+.calibration-ui .auto-exclusion-card.is-restored .auto-exclusion-badge{border-color:#d6b87f;background:#fff3d9;color:#7f571d}
+.calibration-ui .auto-exclusion-reason,.calibration-ui .auto-exclusion-restore-note{overflow-wrap:anywhere}
+.calibration-ui .auto-exclusion-restore-note{margin:0;padding:6px 7px;border:1px solid #e2c590;border-left:3px solid #bf832b;border-radius:3px 6px 6px 3px;background:#fff8e9;color:#765527;font-size:8px;line-height:1.6}
+.calibration-ui .auto-exclusion-action.is-restored{justify-self:stretch;border-color:#c8b899;background:#f2eee6;color:#6f695f;cursor:default;opacity:.9}
+.calibration-ui .auto-exclusion-action.is-danger{border-color:#e0bcc2;background:#fffaf9;color:#8e4d57}
+.calibration-ui .auto-exclusion-action.is-danger:hover{border-color:#d29ba5;background:#fff4f5;color:#783741}
+.calibration-ui .auto-candidate-floor.is-restored{border-color:#d9b572;background:linear-gradient(145deg,#fffaf0,#fff 60%);box-shadow:inset 0 0 0 1px #fff8e8}
+.calibration-ui .auto-candidate-floor.is-restored.is-accepted{border-color:#c68d37;background:linear-gradient(145deg,#fff7e5,#fffefa 58%)}
+.calibration-ui .auto-restored-alert{margin:2px 0 6px;padding:6px 7px;border:1px solid #ddbb80;border-radius:6px;background:#fff5df;color:#79551f;font-size:8px;line-height:1.6;overflow-wrap:anywhere}
+.calibration-ui .auto-match-hint.is-restored{display:grid;gap:3px;border-color:#dfc18c;background:#fff8e9;color:#7c5b2c}
+.calibration-ui .auto-match-hint.is-restored strong{color:#684619;font-size:8.5px;line-height:1.5;font-weight:700}
+.calibration-ui .auto-match-hint.is-restored span{display:block;color:#80643a;font-size:8px;line-height:1.6}.calibration-ui .auto-candidate-floor.is-update{border-color:#b8c9e8;background:linear-gradient(145deg,#f7faff,#fff 68%)}
+.calibration-ui .auto-candidate-floor.is-conflict{border-color:#dfaaaf;background:linear-gradient(145deg,#fff7f7,#fff 68%);box-shadow:inset 0 0 0 1px #fff1f2}
+.calibration-ui .auto-match-hint.is-matched{display:grid;gap:2px;border-color:#bfd4ec;background:#f4f9ff;color:#4f6682}
+.calibration-ui .auto-match-hint.is-matched strong{color:#274c75;font-size:8.5px;font-weight:700}
+.calibration-ui .auto-match-hint.is-matched span{color:#58708c;font-size:8px;line-height:1.6}
+.calibration-ui .auto-match-hint.is-conflict{display:grid;gap:2px;border-color:#e2b2b7;background:#fff4f5;color:#81464d}
+.calibration-ui .auto-match-hint.is-conflict strong{color:#71353c;font-size:8.5px;font-weight:700}
+.calibration-ui .auto-match-hint.is-conflict span{color:#87555b;font-size:8px;line-height:1.6}
+.calibration-ui .auto-candidate-floor.is-skipped{border-color:#d7dce4;background:linear-gradient(145deg,#f8fafc,#fff 68%);box-shadow:inset 0 0 0 1px #f4f6f8}
+.calibration-ui .auto-candidate-floor.is-skipped.is-accepted{border-color:#cbd5e3;background:linear-gradient(145deg,#f7f9fc,#fff 72%)}
+.calibration-ui .auto-match-hint.is-skipped{display:grid;gap:2px;border-color:#cbd3de;background:#f5f7fa;color:#59697c}
+.calibration-ui .auto-match-hint.is-skipped strong{color:#3d5067;font-size:8.5px;font-weight:700}
+.calibration-ui .auto-match-hint.is-skipped span{color:#627386;font-size:8px;line-height:1.6}
+.calibration-ui .auto-audit-evidence{display:grid;gap:5px;margin:5px 0 6px;padding:7px 8px;border:1px solid #e2cfad;border-radius:7px;background:#fffdf8;color:#755b32;font-size:8px;line-height:1.55;min-width:0}
+.calibration-ui .auto-audit-evidence>strong{padding-bottom:4px;border-bottom:1px dashed #e2d1b2;color:#684c20;font-size:8.5px;font-weight:700}
+.calibration-ui .auto-audit-evidence p{margin:0;color:#806844;line-height:1.6;overflow-wrap:anywhere}
+.calibration-ui .auto-audit-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;min-width:0}
+.calibration-ui .auto-audit-metrics>span{min-width:0;padding:4px 5px;border-radius:4px;background:#f7f1e5;color:#7d6a4c;font-size:7.5px;line-height:1.45;overflow-wrap:anywhere}
+.calibration-ui .auto-audit-metrics b{color:#59462b;font-weight:650}
+@media(max-width:760px){.calibration-ui .auto-audit-metrics{grid-template-columns:minmax(0,1fr)}}
 .calibration-ui .floor-actions button{min-width:0;padding:8px 5px;font-size:10px;line-height:1.35;white-space:normal}
 .calibration-ui .danger-outline{color:#a9433b;background:#fff8f6;border-color:#efd0cc;box-shadow:inset 0 0 0 1px #fff}
 .calibration-ui .danger-outline:hover{background:#fff1ee;border-color:#e6b5ae;color:#8f322b}
@@ -367,4 +427,117 @@ body.silver-ui{background:#eaf0f7;color:var(--ink);font-family:Inter,"Segoe UI",
  .calibration-ui .auto-candidate-diagnostics{grid-template-columns:minmax(0,1fr)}
  .calibration-ui .auto-analysis-actions{grid-template-columns:minmax(0,1fr)}
  .calibration-ui .auto-analysis-actions button{min-height:36px;white-space:normal}
+}
+@media(max-width:760px){
+ .calibration-ui .auto-exclusion-actions{grid-template-columns:minmax(0,1fr)}
+ .calibration-ui .auto-exclusion-action{min-height:37px}
+ .calibration-ui .auto-exclusion-title>em{margin-left:0}
+}
+
+/* Calibration audit fixes: explicit hidden state, readable audit copy,
+   accessible touch targets, and one scroll region on narrow screens. */
+.calibration-ui .auto-analysis-progress[hidden]{display:none!important}
+.calibration-ui .auto-calibration-launch span,
+.calibration-ui .auto-analysis-progress,
+.calibration-ui .auto-analysis-progress button,
+.calibration-ui .auto-analysis-heading span,
+.calibration-ui .auto-candidate-meta,
+.calibration-ui .auto-candidate-diagnostics>span,
+.calibration-ui .auto-candidate-region,
+.calibration-ui .auto-candidate-region em,
+.calibration-ui .auto-candidate-warnings li,
+.calibration-ui .auto-region-warnings li,
+.calibration-ui .auto-region-flags,
+.calibration-ui .auto-no-region,
+.calibration-ui .auto-analysis-actions button,
+.calibration-ui .auto-empty,
+.calibration-ui .auto-draft-notice,
+.calibration-ui .auto-diagnostics-heading strong,
+.calibration-ui .auto-diagnostics-heading span,
+.calibration-ui .auto-diagnostics-block>strong,
+.calibration-ui .auto-diagnostics-list li,
+.calibration-ui .auto-thresholds>span,
+.calibration-ui .auto-diagnostics-empty,
+.calibration-ui .auto-replace-option,
+.calibration-ui .auto-replace-impact,
+.calibration-ui .auto-exclusion-heading strong,
+.calibration-ui .auto-exclusion-heading span,
+.calibration-ui .auto-exclusion-title>em,
+.calibration-ui .auto-exclusion-badge,
+.calibration-ui .auto-exclusion-meta>span,
+.calibration-ui .auto-exclusion-reason,
+.calibration-ui .auto-exclusion-warnings li,
+.calibration-ui .auto-exclusion-action,
+.calibration-ui .auto-exclusion-footnote,
+.calibration-ui .auto-exclusion-restore-note,
+.calibration-ui .auto-restored-alert,
+.calibration-ui .auto-match-hint,
+.calibration-ui .auto-match-hint.is-restored strong,
+.calibration-ui .auto-match-hint.is-restored span,
+.calibration-ui .auto-audit-evidence,
+.calibration-ui .auto-audit-evidence>strong,
+.calibration-ui .auto-audit-evidence p,
+.calibration-ui .auto-audit-metrics>span{font-size:10px}
+
+.calibration-ui .auto-calibration-launch span,
+.calibration-ui .auto-analysis-progress,
+.calibration-ui .auto-analysis-heading span,
+.calibration-ui .auto-match-hint{color:#5d7089}
+.calibration-ui .auto-candidate-meta,
+.calibration-ui .auto-draft-notice{color:#60738d}
+.calibration-ui .auto-candidate-diagnostics>span,
+.calibration-ui .auto-thresholds>span{color:#596d87}
+.calibration-ui .auto-region-flags{color:#5c718a}
+.calibration-ui .auto-no-region{color:#7b5c31}
+.calibration-ui .auto-empty,
+.calibration-ui .auto-diagnostics-empty{color:#5f748d}
+.calibration-ui .auto-diagnostics-heading span{color:#765f42}
+.calibration-ui .auto-replace-impact::before{color:#8a6b32;font-size:9px}
+.calibration-ui .auto-exclusion-heading span{color:#7b6038}
+.calibration-ui .auto-exclusion-badge{color:#81571c}
+.calibration-ui .auto-exclusion-meta>span{color:#735b37}
+.calibration-ui .auto-exclusion-footnote{color:#735d3d}
+
+/* Confidence labels are emitted with inline colors. Keep their meaning while
+   darkening them to meet normal-text contrast on white candidate surfaces. */
+.calibration-ui .auto-candidate-meta b[style],
+.calibration-ui .auto-candidate-region em[style]{color:#596d87!important}
+.calibration-ui .auto-candidate-meta b[style*="#2e9b72"],
+.calibration-ui .auto-candidate-region em[style*="#2e9b72"]{color:#237b59!important}
+.calibration-ui .auto-candidate-meta b[style*="#b78324"],
+.calibration-ui .auto-candidate-region em[style*="#b78324"]{color:#7b5b20!important}
+.calibration-ui .auto-candidate-meta b[style*="#b44d4a"],
+.calibration-ui .auto-candidate-region em[style*="#b44d4a"]{color:#9f3936!important}
+
+@media(max-width:760px){
+ .calibration-ui .auto-candidate-list{max-height:none;overflow:visible}
+ .calibration-ui #autoAnalyzeBtn,
+ .calibration-ui .auto-analysis-progress button,
+ .calibration-ui .auto-analysis-actions button,
+ .calibration-ui .auto-exclusion-action,
+ .calibration-ui .auto-candidate-title label,
+ .calibration-ui .auto-candidate-region>label,
+ .calibration-ui .auto-replace-option{min-height:44px}
+}
+
+/* Custom checkbox affordance keeps the native input accessible while making
+   the whole candidate row a clear 44px target on touch screens. */
+.calibration-ui .auto-candidate-title label,
+.calibration-ui .auto-candidate-region>label,
+.calibration-ui .auto-replace-option{position:relative;cursor:pointer}
+.calibration-ui .auto-select-box{display:inline-grid;place-items:center;flex:0 0 16px;width:16px;height:16px;border:1px solid #b7c6db;border-radius:4px;background:#fff;color:transparent;transition:border-color .15s,background .15s}
+.calibration-ui .auto-select-box .lucide{width:11px!important;height:11px!important;min-width:11px!important;stroke-width:2.6}
+.calibration-ui .auto-candidate-title label:hover .auto-select-box,
+.calibration-ui .auto-candidate-region>label:hover .auto-select-box{border-color:#7f9bd0;background:#f4f7ff}
+.calibration-ui input[type="checkbox"]:checked + .auto-select-box{border-color:#315dff;background:#315dff;color:#fff}
+.calibration-ui input[type="checkbox"]:focus-visible + .auto-select-box{outline:2px solid #315dff;outline-offset:2px}/* Candidate floor and region toggles use the Lucide select box as their
+   visible affordance. Keep the native input in the accessibility tree. */
+.calibration-ui input[data-auto-floor-toggle],
+.calibration-ui input[data-auto-region]{position:absolute;width:1px;height:1px;margin:0;opacity:0;clip-path:inset(50%);clip:rect(0 0 0 0);overflow:hidden;pointer-events:none}
+
+@media(max-width:760px){
+ .calibration-ui .auto-candidate-title label,
+ .calibration-ui .auto-candidate-region>label{padding:10px 6px;margin:-6px;border-radius:7px}
+ .calibration-ui .auto-candidate-title label:active,
+ .calibration-ui .auto-candidate-region>label:active{background:#f2f6ff}
 }

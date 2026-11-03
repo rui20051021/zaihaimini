@@ -6,6 +6,9 @@ const DEFAULTS = {
   minFloorAreaRatio: 0.1,
   minSurfaceArea: 0.5,
   minRegionArea: 2,
+  // Ignore sub-cell material seams and raster noise. Keep this separate from
+  // the region floor threshold so a real atrium or stairwell remains a hole.
+  minHoleArea: 0.5,
   minWalkableWidth: 0.9,
   minStructureGap: 0.08,
   maxStructureGap: 0.18,
@@ -14,6 +17,9 @@ const DEFAULTS = {
   aboveCoverageMax: 2.2,
   minAboveCoverage: 0.5,
   minStoryClearance: 0.9,
+  maxCoincidentFaceGap: 0.02,
+  minCoincidentFaceArea: 10,
+  maxCoincidentFaceAreaRatio: 1.35,
   rasterCellsAcross: 1200,
   minRasterCellSize: 0.05,
   minObstacleHeight: 0.12,
@@ -38,12 +44,14 @@ function emitProgress(requestId, stage, value, message) {
 
 const isCancelled = (requestId) => cancelled.has(requestId);
 
-function scanUpwardTriangles(positions, indices, options, requestId) {
+function scanUpwardTriangles(positions, indices, options, requestId, semantics = null) {
   const triangleCount = Math.floor(indices.length / 3);
   const angle = optionNumber(options, 'horizontalAngleDeg') * Math.PI / 180;
   const minimumNormalY = Math.cos(angle);
   const binSize = Math.max(0.001, optionNumber(options, 'heightBinSize'));
   const bins = new Map();
+  const triangleMaterialIds = semantics?.triangleMaterialIds || null;
+  const materialNames = Array.isArray(semantics?.materialNames) ? semantics.materialNames : [];
   let upwardCount = 0;
   let downwardCount = 0;
   let structuralCount = 0;
@@ -62,11 +70,13 @@ function scanUpwardTriangles(positions, indices, options, requestId) {
     const ia = Number(indices[triangle * 3]) * 3;
     const ib = Number(indices[triangle * 3 + 1]) * 3;
     const ic = Number(indices[triangle * 3 + 2]) * 3;
-    if (!Number.isInteger(ia) || !Number.isInteger(ib) || !Number.isInteger(ic) || ia < 0 || ib < 0 || ic < 0 || ic + 2 >= positions.length) continue;
+    if (!Number.isInteger(ia) || !Number.isInteger(ib) || !Number.isInteger(ic) || ia < 0 || ib < 0 || ic < 0
+      || ia + 2 >= positions.length || ib + 2 >= positions.length || ic + 2 >= positions.length) continue;
 
     const ax = positions[ia], ay = positions[ia + 1], az = positions[ia + 2];
     const bx = positions[ib], by = positions[ib + 1], bz = positions[ib + 2];
     const cx = positions[ic], cy = positions[ic + 1], cz = positions[ic + 2];
+    if (![ax, ay, az, bx, by, bz, cx, cy, cz].every(Number.isFinite)) continue;
     const abx = bx - ax, aby = by - ay, abz = bz - az;
     const acx = cx - ax, acy = cy - ay, acz = cz - az;
     const nx = aby * acz - abz * acy;
@@ -84,21 +94,42 @@ function scanUpwardTriangles(positions, indices, options, requestId) {
     const projectedArea = Math.abs(ny) * 0.5;
     if (projectedArea <= 1e-10) continue;
     const isUpward = ny > 0;
+    const materialId = triangleMaterialIds ? Number(triangleMaterialIds[triangle]) : -1;
+    const materialKey = Number.isInteger(materialId) && materialId >= 0 ? String(materialId) : '';
     const key = Math.floor(y / binSize + 1e-7);
     let bin = bins.get(key);
     if (!bin) {
-      bin = { key, count: 0, area: 0, weightedY: 0, triangleIds: [], upwardCount: 0, downwardCount: 0 };
+      bin = {
+        key, count: 0, area: 0, weightedY: 0, triangleIds: [],
+        upwardCount: 0, downwardCount: 0,
+        upwardArea: 0, downwardArea: 0,
+        upwardWeightedY: 0, downwardWeightedY: 0,
+        upwardMinY: Infinity, upwardMaxY: -Infinity,
+        downwardMinY: Infinity, downwardMaxY: -Infinity,
+        upwardMaterialArea: Object.create(null),
+      };
       bins.set(key, bin);
     }
     bin.count += 1;
     bin.area += projectedArea;
     bin.weightedY += y * projectedArea;
     bin.triangleIds.push(triangle);
+    const triangleMinY = Math.min(ay, by, cy);
+    const triangleMaxY = Math.max(ay, by, cy);
     if (isUpward) {
       bin.upwardCount += 1;
+      bin.upwardArea += projectedArea;
+      bin.upwardWeightedY += y * projectedArea;
+      bin.upwardMinY = Math.min(bin.upwardMinY, triangleMinY);
+      bin.upwardMaxY = Math.max(bin.upwardMaxY, triangleMaxY);
+      if (materialKey) bin.upwardMaterialArea[materialKey] = (bin.upwardMaterialArea[materialKey] || 0) + projectedArea;
       upwardCount += 1;
     } else {
       bin.downwardCount += 1;
+      bin.downwardArea += projectedArea;
+      bin.downwardWeightedY += y * projectedArea;
+      bin.downwardMinY = Math.min(bin.downwardMinY, triangleMinY);
+      bin.downwardMaxY = Math.max(bin.downwardMaxY, triangleMaxY);
       downwardCount += 1;
     }
     structuralCount += 1;
@@ -122,7 +153,12 @@ function scanUpwardTriangles(positions, indices, options, requestId) {
 function clusterHeightLayers(bins, options) {
   const tolerance = Math.max(0.001, optionNumber(options, 'clusterTolerance'));
   const sorted = [...bins.values()]
-    .map((bin) => ({ ...bin, y: bin.weightedY / Math.max(bin.area, 1e-12) }))
+    .map((bin) => ({
+      ...bin,
+      y: bin.upwardArea > 0
+        ? bin.upwardWeightedY / Math.max(bin.upwardArea, 1e-12)
+        : bin.weightedY / Math.max(bin.area, 1e-12),
+    }))
     .sort((a, b) => a.y - b.y);
   const layers = [];
 
@@ -140,6 +176,15 @@ function clusterHeightLayers(bins, options) {
         count: bin.count,
         upwardCount: bin.upwardCount || 0,
         downwardCount: bin.downwardCount || 0,
+        upwardArea: bin.upwardArea || 0,
+        downwardArea: bin.downwardArea || 0,
+        upwardWeightedY: bin.upwardWeightedY || 0,
+        downwardWeightedY: bin.downwardWeightedY || 0,
+        upwardMinY: bin.upwardMinY,
+        upwardMaxY: bin.upwardMaxY,
+        downwardMinY: bin.downwardMinY,
+        downwardMaxY: bin.downwardMaxY,
+        upwardMaterialArea: { ...bin.upwardMaterialArea },
         triangleIds: bin.triangleIds.slice(),
       });
       continue;
@@ -150,12 +195,26 @@ function clusterHeightLayers(bins, options) {
     previous.count += bin.count;
     previous.upwardCount = (previous.upwardCount || 0) + (bin.upwardCount || 0);
     previous.downwardCount = (previous.downwardCount || 0) + (bin.downwardCount || 0);
+    previous.upwardArea = (previous.upwardArea || 0) + (bin.upwardArea || 0);
+    previous.downwardArea = (previous.downwardArea || 0) + (bin.downwardArea || 0);
+    previous.upwardWeightedY = (previous.upwardWeightedY || 0) + (bin.upwardWeightedY || 0);
+    previous.downwardWeightedY = (previous.downwardWeightedY || 0) + (bin.downwardWeightedY || 0);
+    previous.upwardMinY = Math.min(previous.upwardMinY ?? Infinity, bin.upwardMinY ?? Infinity);
+    previous.upwardMaxY = Math.max(previous.upwardMaxY ?? -Infinity, bin.upwardMaxY ?? -Infinity);
+    previous.downwardMinY = Math.min(previous.downwardMinY ?? Infinity, bin.downwardMinY ?? Infinity);
+    previous.downwardMaxY = Math.max(previous.downwardMaxY ?? -Infinity, bin.downwardMaxY ?? -Infinity);
+    const previousMaterials = previous.upwardMaterialArea || (previous.upwardMaterialArea = Object.create(null));
+    for (const [materialId, area] of Object.entries(bin.upwardMaterialArea || {})) {
+      previousMaterials[materialId] = (previousMaterials[materialId] || 0) + Number(area || 0);
+    }
     previous.triangleIds = previous.triangleIds.concat(bin.triangleIds);
   }
 
   return layers.map((layer) => ({
     ...layer,
-    y: layer.weightedY / Math.max(layer.area, 1e-12),
+    y: layer.upwardArea > 0
+      ? layer.upwardWeightedY / Math.max(layer.upwardArea, 1e-12)
+      : layer.weightedY / Math.max(layer.area, 1e-12),
   }));
 }
 
@@ -249,7 +308,81 @@ function aboveCoverage(layer, layers, options, grid) {
   return layerCells ? coveredCells / layerCells : 0;
 }
 
-function selectFloorLayers(layers, options, grid) {
+function coincidentFaceEvidence(layer, options) {
+  const upwardArea = Number(layer.upwardArea || 0);
+  const downwardArea = Number(layer.downwardArea || 0);
+  const minimumArea = optionNumber(options, 'minCoincidentFaceArea');
+  if (upwardArea < minimumArea || downwardArea < minimumArea) return null;
+  const areaRatio = Math.max(upwardArea, downwardArea) / Math.max(1e-9, Math.min(upwardArea, downwardArea));
+  if (areaRatio > optionNumber(options, 'maxCoincidentFaceAreaRatio')) return null;
+  const upwardY = Number(layer.upwardWeightedY || 0) / upwardArea;
+  const downwardY = Number(layer.downwardWeightedY || 0) / downwardArea;
+  const separation = Math.abs(upwardY - downwardY);
+  if (!Number.isFinite(separation) || separation > optionNumber(options, 'maxCoincidentFaceGap')) return null;
+  return {
+    upwardArea,
+    downwardArea,
+    upwardY,
+    downwardY,
+    separation,
+    areaRatio,
+  };
+}
+
+function materialAreaBreakdown(layer, materialNames = []) {
+  const materialArea = layer?.upwardMaterialArea || {};
+  const total = Number(layer?.upwardArea || 0);
+  return Object.entries(materialArea)
+    .map(([id, area]) => {
+      const numericId = Number(id);
+      const value = Number(area) || 0;
+      return {
+        id: numericId,
+        name: materialNames[numericId] || ('材质 ' + (numericId + 1)),
+        area: value,
+        share: total > 1e-9 ? value / total : 0,
+      };
+    })
+    .filter((item) => item.area > 0)
+    .sort((a, b) => b.area - a.area);
+}
+
+function roofMaterialEvidence(highest, lowerLayers, options, materialNames = []) {
+  const materials = materialAreaBreakdown(highest, materialNames);
+  if (!materials.length) return null;
+  const highestArea = Number(highest?.upwardArea || 0);
+  if (highestArea < optionNumber(options, 'minCoincidentFaceArea')) return null;
+  const minimumShare = 0.35;
+  const dominant = materials.filter((item) => item.share >= minimumShare && item.area >= optionNumber(options, 'minCoincidentFaceArea'));
+  if (!dominant.length) return null;
+  const lowerMaterialTotals = new Map();
+  let lowerArea = 0;
+  for (const layer of lowerLayers) {
+    lowerArea += Number(layer?.upwardArea || 0);
+    for (const [id, area] of Object.entries(layer?.upwardMaterialArea || {})) {
+      lowerMaterialTotals.set(Number(id), (lowerMaterialTotals.get(Number(id)) || 0) + Number(area || 0));
+    }
+  }
+  if (lowerArea <= 1e-9) return null;
+  for (const item of dominant) {
+    const lowerShare = (lowerMaterialTotals.get(item.id) || 0) / lowerArea;
+    // A roof membrane / terrace finish is typically exclusive at the top:
+    // the same material is either absent or only a minor trim below. Ordinary
+    // floor finishes repeat on every storey and must never trigger exclusion,
+    // even when the top slab is thin or partly double-sided.
+    if (lowerShare > 0.12) continue;
+    return {
+      materialId: item.id,
+      materialName: item.name,
+      materialArea: Number(item.area.toFixed(2)),
+      materialShare: Number(item.share.toFixed(3)),
+      lowerShare: Number(lowerShare.toFixed(3)),
+    };
+  }
+  return null;
+}
+
+function selectFloorLayers(layers, options, grid, semantics = null) {
   const substantial = layers
     .filter((layer) => layer.rasterArea >= optionNumber(options, 'minSurfaceArea'))
     .sort((a, b) => a.y - b.y);
@@ -275,6 +408,9 @@ function selectFloorLayers(layers, options, grid) {
       if (overlap < minimumOverlap) continue;
       const areaRatio = Math.max(upper.rasterArea, lower.rasterArea) / Math.max(1e-9, Math.min(upper.rasterArea, lower.rasterArea));
       if (areaRatio > 2.2) continue;
+      // The lower face may be a slab underside or the upper face may be the
+      // top of a thin slab. Require at least one genuine upward surface.
+      if (!(lower.upwardCount > 0) && !(upper.upwardCount > 0)) continue;
       pairs.push({ lower, upper, overlap, gap, areaRatio });
     }
   }
@@ -295,8 +431,11 @@ function selectFloorLayers(layers, options, grid) {
   // decorative horizontal surfaces may be lower than the next real floor, so
   // selecting every 0.9m-separated surface can make the algorithm choose a
   // desk or a ceiling trim instead of the floor above it.
+  // A structural top is either the upward face of a paired slab top or the
+  // highest exposed floor in a model whose slab undersides were paired. In the
+  // latter case the roof support above it may be absent from the mesh.
   const structuralTops = candidates
-    .filter((layer) => upperToLower.has(layer))
+    .filter((layer) => upperToLower.has(layer) || lowerToUpper.has(layer))
     .sort((a, b) => a.y - b.y);
   const hasStructuralTops = structuralTops.length > 0;
   let ordered;
@@ -324,20 +463,111 @@ function selectFloorLayers(layers, options, grid) {
     coverage.set(layer, aboveCoverage(layer, substantial, options, grid));
   }
 
-  // Roof removal is opt-in for building-sized inputs. Small synthetic models
-  // must preserve an exposed top floor even when no surface is above it.
-  let removedRoof = null;
-  if (optionNumber(options, 'removeRoof') > 0 && structuralTops.length >= 2) {
-    const highestStructural = structuralTops[structuralTops.length - 1];
-    if (coverage.get(highestStructural) < optionNumber(options, 'minAboveCoverage')) {
-      ordered = ordered.filter((layer) => layer !== highestStructural);
-      removedRoof = {
-        elevation_m: Number(highestStructural.y.toFixed(4)),
-        above_coverage: Number(Number(coverage.get(highestStructural) || 0).toFixed(3)),
-      };
+  // Explicit caller requests are distinct from model-size inference. An
+  // automatic rule requires mutually overlapping structural slab pairs below
+  // the highest surface. Two unrelated platforms in a small test mesh must not
+  // turn the only valid upper floor into a roof.
+  const roofRemovalExplicit = optionNumber(options, 'roofRemovalExplicit') > 0;
+  const removeRoofRequested = optionNumber(options, 'removeRoof') > 0;
+  const explicitRoofRemoval = roofRemovalExplicit && removeRoofRequested;
+  const explicitRoofRetention = roofRemovalExplicit && !removeRoofRequested;
+  const materialNames = Array.isArray(semantics?.materialNames) ? semantics.materialNames : [];
+  const inferableSlabTops = structuralTops.filter((layer) => upperToLower.has(layer));
+  // Roof evidence is a pair of consecutive storey slabs. Their horizontal
+  // coverage must overlap; scattered platforms in synthetic tests do not form
+  // a building and must never trigger automatic removal.
+  const inferableRoofPairs = [];
+  for (let index = 1; index < inferableSlabTops.length; index += 1) {
+    const lower = inferableSlabTops[index - 1];
+    const upper = inferableSlabTops[index];
+    if (upper.y - lower.y >= minimumClearance
+      && overlapRatio(upper, lower, grid) >= minimumOverlap
+      && overlapRatio(lower, upper, grid) >= minimumOverlap) {
+      inferableRoofPairs.push({ lower, upper });
     }
   }
-
+  const reviewOnlyLayers = [];
+  let excludedFloors = [];
+  let excludedLayers = [];
+  const highestStructural = structuralTops.length
+    ? structuralTops[structuralTops.length - 1]
+    : ordered[ordered.length - 1];
+  // A highest storey whose upward face has a matching slab underside is
+  // structurally complete. Treating it as a roof would silently delete the
+  // real top floor. Automatic inference therefore requires roof evidence and
+  // an unpaired highest surface. Explicit removal remains available for the
+  // administrator when model metadata or visual review proves it is a roof.
+  const highestIsPairedTop = upperToLower.has(highestStructural);
+  // A thin, coincident upward/downward skin is common in exported roof meshes.
+  // It is only an audit clue: exported buildings also contain genuinely thin
+  // top-storey slabs, so a 1-2 cm double face must never remove a real floor
+  // by itself. Automatic exclusion additionally requires a dominant top-only
+  // finish material and complete storeys below.
+  const coincidentFace = highestStructural
+    ? coincidentFaceEvidence(highestStructural, options)
+    : null;
+  const lowerStructural = structuralTops.filter((layer) => layer !== highestStructural && layer.y < Number(highestStructural?.y || Infinity));
+  const topMaterialEvidence = highestStructural
+    ? roofMaterialEvidence(highestStructural, lowerStructural, options, materialNames)
+    : null;
+  const canInferRoof = !explicitRoofRetention
+    && inferableRoofPairs.length > 0
+    && Boolean(coincidentFace)
+    && Boolean(topMaterialEvidence)
+    && (!highestIsPairedTop || Boolean(coincidentFace));
+  // A coincident top face is enough to request review, even when the export
+  // omitted slab undersides between storeys. Review never removes a floor.
+  const roofReviewWithoutMaterial = !explicitRoofRemoval
+    && Boolean(coincidentFace)
+    && !topMaterialEvidence;
+  const canRemoveHighest = explicitRoofRemoval ? ordered.length >= 2 : canInferRoof;
+  if (roofReviewWithoutMaterial && highestStructural) {
+    // The selected layer is a copy, so keep review metadata on an explicit
+    // side channel and map it back when serializing floor warnings.
+    reviewOnlyLayers.push({
+      y: highestStructural.y,
+      roofReview: '无独立屋面材料证据：默认保留为普通楼层，请人工确认它是顶层还是屋面。',
+    });
+  }
+  if (canRemoveHighest && highestStructural) {
+    const highestCoverage = Number(coverage.get(highestStructural) || 0);
+    if (explicitRoofRemoval || highestCoverage < optionNumber(options, 'minAboveCoverage')) {
+      ordered = ordered.filter((layer) => layer !== highestStructural);
+      excludedLayers = [highestStructural];
+      excludedFloors = [{
+        id: 'auto-excluded-1',
+        name: '屋面 / 露台疑似',
+        kind: 'roof_or_terrace',
+        status: 'excluded',
+        elevation_m: Number(highestStructural.y.toFixed(4)),
+        area_m2: Number(highestStructural.rasterArea.toFixed(2)),
+        aboveCoverage: Number(highestCoverage.toFixed(3)),
+        above_coverage: Number(highestCoverage.toFixed(3)),
+        triangleCount: highestStructural.count,
+        confidence: 'low',
+        roofEvidence: explicitRoofRemoval
+          ? 'explicit_request'
+          : topMaterialEvidence ? 'top_only_material' : coincidentFace ? 'coincident_double_face' : 'insufficient_above_coverage',
+        upwardArea_m2: coincidentFace ? Number(coincidentFace.upwardArea.toFixed(2)) : null,
+        downwardArea_m2: coincidentFace ? Number(coincidentFace.downwardArea.toFixed(2)) : null,
+        faceSeparation_m: coincidentFace ? Number(coincidentFace.separation.toFixed(4)) : null,
+        materialEvidence: topMaterialEvidence,
+        materialName: topMaterialEvidence?.materialName || null,
+        materialShare: topMaterialEvidence?.materialShare ?? null,
+        materialLowerShare: topMaterialEvidence?.lowerShare ?? null,
+        reason: explicitRoofRemoval
+          ? '管理员显式请求将该屋面 / 露台移入审计区；确认前不会直接写入草稿'
+          : topMaterialEvidence
+            ? '最高层具有仅在顶层出现的主要饰面材料，且上方未形成完整楼层'
+            : '最高结构板顶面及以上方覆盖不足，可能是屋面或开放露台',
+        regions: null,
+        warnings: [
+          '请人工确认该平面是屋面、露台或真实楼层；确认前不会写入草稿。',
+          ...(topMaterialEvidence ? ['顶面独有材料：' + topMaterialEvidence.materialName + '（' + Math.round(topMaterialEvidence.materialShare * 100) + '% 顶面面积，下方仅 ' + Math.round(topMaterialEvidence.lowerShare * 100) + '%）。'] : []),
+        ],
+      }];
+    }
+  }
   const selected = [];
   const largestCandidateArea = Math.max(0, ...candidates.map((layer) => layer.rasterArea));
   for (const layer of ordered) {
@@ -355,9 +585,8 @@ function selectFloorLayers(layers, options, grid) {
       platformSuspected: !structureMatch && selected.length > 0 && layer.rasterArea < largestCandidateArea * 0.7,
     });
   }
-  return { selected, lowerToUpper, upperToLower, removedRoof };
+  return { selected, lowerToUpper, upperToLower, excludedFloors, excludedLayers, reviewOnlyLayers };
 }
-
 function labelComponents(mask, width, height) {
   const labels = new Int32Array(mask.length);
   labels.fill(-1);
@@ -593,12 +822,119 @@ function widestPathWidth(mask, width, height, distanceMap, cellSize) {
   };
 }
 
-function smoothClosedRing(ring, tolerance) {
-  if (ring.length <= 4) return ring;
-  const points = ring.slice(0, -1);
-  // Douglas-Peucker on a closed loop. The first point is duplicated at the
-  // end, so split at the farthest point and simplify both halves. Keeping the
-  // shared endpoints gives us a valid closed polygon without dropping corners.
+const RING_EPSILON = 1e-9;
+
+function sameRingPoint(left, right, epsilon = RING_EPSILON) {
+  return Math.abs(left[0] - right[0]) <= epsilon && Math.abs(left[1] - right[1]) <= epsilon;
+}
+
+function ringCross(origin, left, right) {
+  return (left[0] - origin[0]) * (right[1] - origin[1])
+    - (left[1] - origin[1]) * (right[0] - origin[0]);
+}
+
+function ringPointOnSegment(point, start, end, epsilon = RING_EPSILON) {
+  const length = Math.hypot(end[0] - start[0], end[1] - start[1]);
+  if (Math.abs(ringCross(start, end, point)) > epsilon * Math.max(1, length)) return false;
+  return point[0] >= Math.min(start[0], end[0]) - epsilon
+    && point[0] <= Math.max(start[0], end[0]) + epsilon
+    && point[1] >= Math.min(start[1], end[1]) - epsilon
+    && point[1] <= Math.max(start[1], end[1]) + epsilon;
+}
+
+function ringSegmentsIntersect(a, b, c, d) {
+  const abc = ringCross(a, b, c);
+  const abd = ringCross(a, b, d);
+  const cda = ringCross(c, d, a);
+  const cdb = ringCross(c, d, b);
+  if (((abc > RING_EPSILON && abd < -RING_EPSILON) || (abc < -RING_EPSILON && abd > RING_EPSILON))
+    && ((cda > RING_EPSILON && cdb < -RING_EPSILON) || (cda < -RING_EPSILON && cdb > RING_EPSILON))) {
+    return true;
+  }
+  return (Math.abs(abc) <= RING_EPSILON && ringPointOnSegment(c, a, b))
+    || (Math.abs(abd) <= RING_EPSILON && ringPointOnSegment(d, a, b))
+    || (Math.abs(cda) <= RING_EPSILON && ringPointOnSegment(a, c, d))
+    || (Math.abs(cdb) <= RING_EPSILON && ringPointOnSegment(b, c, d));
+}
+
+function openRingPoints(ring) {
+  if (!Array.isArray(ring)) return [];
+  const points = [];
+  for (const point of ring) {
+    if (!Array.isArray(point) || point.length < 2
+      || !Number.isFinite(Number(point[0])) || !Number.isFinite(Number(point[1]))) return [];
+    points.push([Number(point[0]), Number(point[1])]);
+  }
+  while (points.length > 1 && sameRingPoint(points[0], points[points.length - 1])) points.pop();
+  return points;
+}
+
+function cleanClosedRing(raw) {
+  const points = openRingPoints(raw);
+  if (points.length < 3) return null;
+  const deduplicated = [];
+  for (const point of points) {
+    if (!deduplicated.length || !sameRingPoint(deduplicated[deduplicated.length - 1], point)) {
+      deduplicated.push(point);
+    }
+  }
+  if (deduplicated.length > 1 && sameRingPoint(deduplicated[0], deduplicated[deduplicated.length - 1])) {
+    deduplicated.pop();
+  }
+  if (deduplicated.length < 3) return null;
+
+  let cleaned = deduplicated;
+  let changed = true;
+  while (changed && cleaned.length > 3) {
+    changed = false;
+    const next = [];
+    for (let index = 0; index < cleaned.length; index += 1) {
+      const previous = cleaned[(index + cleaned.length - 1) % cleaned.length];
+      const current = cleaned[index];
+      const following = cleaned[(index + 1) % cleaned.length];
+      if (ringPointOnSegment(current, previous, following)) {
+        changed = true;
+      } else {
+        next.push(current);
+      }
+    }
+    if (next.length >= 3) cleaned = next;
+  }
+  if (cleaned.length < 3) return null;
+  return cleaned.concat([[cleaned[0][0], cleaned[0][1]]]);
+}
+
+export function ringSelfIntersects(ring) {
+  const points = openRingPoints(ring);
+  if (points.length < 3) return true;
+  for (let index = 0; index < points.length; index += 1) {
+    if (sameRingPoint(points[index], points[(index + 1) % points.length])) return true;
+  }
+  for (let left = 0; left < points.length; left += 1) {
+    const leftNext = (left + 1) % points.length;
+    for (let right = left + 1; right < points.length; right += 1) {
+      const rightNext = (right + 1) % points.length;
+      if (left === right || leftNext === right || rightNext === left) continue;
+      if (ringSegmentsIntersect(points[left], points[leftNext], points[right], points[rightNext])) return true;
+    }
+  }
+  return false;
+}
+
+function isValidClosedRing(ring) {
+  const cleaned = cleanClosedRing(ring);
+  return Boolean(cleaned
+    && cleaned.length >= 4
+    && Math.abs(ringArea(cleaned)) > 1e-8
+    && !ringSelfIntersects(cleaned));
+}
+
+export function smoothClosedRing(ring, tolerance) {
+  const original = cleanClosedRing(ring);
+  if (!original || !isValidClosedRing(original)) return null;
+  if (original.length <= 4) return original;
+
+  const points = original.slice(0, -1);
   let farthest = 1;
   let farthestDistance = -1;
   for (let index = 1; index < points.length; index += 1) {
@@ -633,73 +969,113 @@ function smoothClosedRing(ring, tolerance) {
   };
   const firstHalf = points.slice(0, farthest + 1);
   const secondHalf = points.slice(farthest).concat([points[0]]);
-  const simplified = simplifyOpen(firstHalf).slice(0, -1)
-    .concat(simplifyOpen(secondHalf));
-  if (simplified.length < 4) return ring;
-  return simplified;
+  const simplified = cleanClosedRing(
+    simplifyOpen(firstHalf).slice(0, -1).concat(simplifyOpen(secondHalf)),
+  );
+  if (simplified && isValidClosedRing(simplified)) return simplified;
+  return original;
 }
 
-function traceBoundaryLoops(mask, width, height, originX, originZ, cellSize) {
+export function traceBoundaryLoops(mask, width, height, originX, originZ, cellSize) {
   const outgoing = new Map();
-  const addEdge = (x0, z0, x1, z1) => {
+  const addEdge = (x0, z0, x1, z1, cell) => {
     const from = z0 * (width + 1) + x0;
     const to = z1 * (width + 1) + x1;
-    const edge = { from, to, x0, z0, x1, z1, angle: Math.atan2(z1 - z0, x1 - x0), successor: null };
+    const edge = { from, to, cell, x0, z0, x1, z1, dx: x1 - x0, dz: z1 - z0, angle: Math.atan2(z1 - z0, x1 - x0), successor: null };
     const list = outgoing.get(from);
-    if (list) list.push(edge);
-    else outgoing.set(from, [edge]);
+    if (list) list.push(edge); else outgoing.set(from, [edge]);
     return edge;
   };
   const edges = [];
+  const occupied = (col, row) => col >= 0 && col < width && row >= 0 && row < height && Boolean(mask[row * width + col]);
   for (let row = 0; row < height; row += 1) {
     for (let col = 0; col < width; col += 1) {
-      if (!mask[row * width + col]) continue;
-      if (row === 0 || !mask[(row - 1) * width + col]) edges.push(addEdge(col + 1, row, col, row));
-      if (row + 1 >= height || !mask[(row + 1) * width + col]) edges.push(addEdge(col, row + 1, col + 1, row + 1));
-      if (col === 0 || !mask[row * width + col - 1]) edges.push(addEdge(col, row, col, row + 1));
-      if (col + 1 >= width || !mask[row * width + col + 1]) edges.push(addEdge(col + 1, row + 1, col + 1, row));
+      const cell = row * width + col;
+      if (!mask[cell]) continue;
+      const sides = new Array(4);
+      if (!occupied(col, row - 1)) sides[0] = addEdge(col + 1, row, col, row, cell);
+      if (!occupied(col - 1, row)) sides[1] = addEdge(col, row, col, row + 1, cell);
+      if (!occupied(col, row + 1)) sides[2] = addEdge(col, row + 1, col + 1, row + 1, cell);
+      if (!occupied(col + 1, row)) sides[3] = addEdge(col + 1, row + 1, col + 1, row, cell);
+      for (const edge of sides) if (edge) edges.push(edge);
     }
   }
 
+  const sameDirection = (left, right) => left.dx === right.dx && left.dz === right.dz;
+  const traceFrom = (start, localVisited, loops) => {
+    const local = new Set();
+    const corners = [[originX + start.x0 * cellSize, originZ + start.z0 * cellSize]];
+    let edge = start;
+    let closed = false;
+    let guard = 0;
+    while (edge && guard <= edges.length + 1) {
+      if (local.has(edge)) { closed = edge === start; break; }
+      if (localVisited.has(edge)) return false;
+      local.add(edge);
+      const next = edge.successor;
+      if (!next) break;
+      if (!sameDirection(edge, next)) corners.push([originX + next.x0 * cellSize, originZ + next.z0 * cellSize]);
+      edge = next;
+      guard += 1;
+    }
+    if (!closed || corners.length < 3) return false;
+    const loop = cleanClosedRing(corners);
+    if (!loop || Math.abs(ringArea(loop)) <= 1e-8 || !isValidClosedRing(loop)) return false;
+    for (const item of local) localVisited.add(item);
+    loops.push(loop);
+    return true;
+  };
+
+  // At degree-four lattice vertices, two different continuations both avoid
+  // immediate self-intersection. Keep both possibilities until a cycle has
+  // been verified, then commit the first complete, globally consistent set.
+  // This is bounded because saddles are rare in a building raster.
+  const maxSearchNodes = Math.max(256, edges.length * 4);
+  let searchNodes = 0;
+  const search = (cursor, visited) => {
+    if (searchNodes++ > maxSearchNodes) return null;
+    const loops = [];
+    while (cursor < edges.length && visited.has(edges[cursor])) cursor += 1;
+    if (cursor >= edges.length) return loops;
+    const start = edges[cursor];
+    const options = (outgoing.get(start.to) || []).filter((candidate) => candidate !== start);
+    // At a saddle, try each diagonal continuation. On a straight/corner seam,
+    // try the same-cell edge first and then the remaining option as a fallback.
+    const sameCell = options.filter((candidate) => candidate.cell === start.cell);
+    const preferred = [...sameCell, ...options.filter((candidate) => candidate.cell !== start.cell)];
+    for (const next of preferred) {
+      start.successor = next;
+      const nextVisited = new Set(visited);
+      const nextLoops = [];
+      if (!traceFrom(start, nextVisited, nextLoops)) continue;
+      const tail = search(cursor + 1, nextVisited);
+      if (tail) return nextLoops.concat(tail);
+    }
+    return null;
+  };
+  const paired = search(0, new Set());
+  if (paired) return paired;
+
+  // Deterministic fallback: widest left turn at every junction. This always
+  // produces closed cycles; any invalid cycle is rejected by region building.
   const twoPi = Math.PI * 2;
   for (const edge of edges) {
-    const options = outgoing.get(edge.to) || [];
+    const options = (outgoing.get(edge.to) || []).filter((candidate) => candidate !== edge);
+    const sameCell = options.filter((candidate) => candidate.cell === edge.cell);
+    const candidates = options.length >= 3 && sameCell.length ? sameCell : options;
     let best = null;
-    let bestTurn = Infinity;
-    for (const candidate of options) {
+    let bestTurn = -Infinity;
+    for (const candidate of candidates) {
       let turn = ((edge.angle - candidate.angle) % twoPi + twoPi) % twoPi;
       if (turn < 1e-9) turn = twoPi;
-      if (turn < bestTurn) {
-        bestTurn = turn;
-        best = candidate;
-      }
+      if (turn > bestTurn) { bestTurn = turn; best = candidate; }
     }
     edge.successor = best;
   }
-
   const visited = new Set();
   const loops = [];
   for (const start of edges) {
-    if (visited.has(start)) continue;
-    const loop = [];
-    let edge = start;
-    let guard = 0;
-    while (edge && !visited.has(edge) && guard <= edges.length + 1) {
-      visited.add(edge);
-      loop.push([originX + edge.x0 * cellSize, originZ + edge.z0 * cellSize]);
-      edge = edge.successor;
-      guard += 1;
-    }
-    if (loop.length < 4) continue;
-    const first = loop[0];
-    const last = loop[loop.length - 1];
-    if (first[0] !== last[0] || first[1] !== last[1]) {
-      const startVertex = start.from;
-      const startCol = startVertex % (width + 1);
-      const startRow = Math.floor(startVertex / (width + 1));
-      loop.push([originX + startCol * cellSize, originZ + startRow * cellSize]);
-    }
-    if (loop.length >= 4) loops.push(loop);
+    if (!visited.has(start)) traceFrom(start, visited, loops);
   }
   return loops;
 }
@@ -735,7 +1111,6 @@ function insidePointForLoop(loop, cellSize) {
   return loop[0];
 }
 
-
 function forceRingWinding(ring, counterClockwise) {
   const oriented = [...ring];
   const area = ringArea(oriented);
@@ -743,24 +1118,57 @@ function forceRingWinding(ring, counterClockwise) {
   return oriented;
 }
 
+function ringBounds(ring) {
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (const point of ring) {
+    if (point[0] < minX) minX = point[0];
+    if (point[0] > maxX) maxX = point[0];
+    if (point[1] < minZ) minZ = point[1];
+    if (point[1] > maxZ) maxZ = point[1];
+  }
+  return { minX, minZ, maxX, maxZ };
+}
+
+function boundsOverlap(left, right, epsilon = 0) {
+  return left.minX <= right.maxX + epsilon
+    && left.maxX >= right.minX - epsilon
+    && left.minZ <= right.maxZ + epsilon
+    && left.maxZ >= right.minZ - epsilon;
+}
+
 function ringInteriorPoint(ring, cellSize) {
   const points = ring.slice(0, -1);
   if (!points.length) return ring[0];
   let best = null;
   let bestScore = -Infinity;
-  for (const x of new Set(points.map((point) => point[0]))) {
-    for (const z of new Set(points.map((point) => point[1]))) {
-      const probe = [x + cellSize * 0.25, z + cellSize * 0.25];
+  // Sampling at vertex offsets is sufficient to find an interior probe without
+  // testing every pair of distinct X and Z coordinates. Complex stairwell
+  // outlines can have hundreds of vertices; the former Cartesian product was
+  // quadratic even before the ring intersection checks.
+  const sampleStep = Math.max(1, Math.floor(points.length / 48));
+  for (let index = 0; index < points.length; index += sampleStep) {
+    const point = points[index];
+    const probes = [
+      [point[0] + cellSize * 0.25, point[1] + cellSize * 0.25],
+      [point[0] - cellSize * 0.25, point[1] + cellSize * 0.25],
+      [point[0] - cellSize * 0.25, point[1] - cellSize * 0.25],
+      [point[0] + cellSize * 0.25, point[1] - cellSize * 0.25],
+    ];
+    for (const probe of probes) {
       if (!pointInRing(probe[0], probe[1], ring)) continue;
       let clearance = Infinity;
-      for (let index = 0; index < ring.length - 1; index += 1) {
-        const ax = ring[index][0], az = ring[index][1], bx = ring[index + 1][0], bz = ring[index + 1][1];
+      for (let edge = 0; edge < ring.length - 1; edge += 1) {
+        const ax = ring[edge][0], az = ring[edge][1], bx = ring[edge + 1][0], bz = ring[edge + 1][1];
         const dx = bx - ax, dz = bz - az;
         const length = Math.hypot(dx, dz);
         if (length <= 1e-12) continue;
         clearance = Math.min(clearance, Math.abs(dz * probe[0] - dx * probe[1] + bx * az - ax * bz) / length);
       }
       if (clearance > bestScore) { bestScore = clearance; best = probe; }
+      if (bestScore >= cellSize * 0.2) return best;
     }
   }
   if (best) return best;
@@ -768,54 +1176,158 @@ function ringInteriorPoint(ring, cellSize) {
   return pointInRing(fallback[0], fallback[1], ring) ? fallback : [0, 0];
 }
 
+function segmentBounds(a, b) {
+  return {
+    minX: Math.min(a[0], b[0]),
+    minZ: Math.min(a[1], b[1]),
+    maxX: Math.max(a[0], b[0]),
+    maxZ: Math.max(a[1], b[1]),
+  };
+}
+
 function ringEdgesIntersect(a, b) {
-  const orientation = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
-  const onSegment = (p, q, r) => Math.min(p[0], r[0]) - 1e-9 <= q[0] && q[0] <= Math.max(p[0], r[0]) + 1e-9
-    && Math.min(p[1], r[1]) - 1e-9 <= q[1] && q[1] <= Math.max(p[1], r[1]) + 1e-9;
-  for (let i = 0; i < a.length - 1; i += 1) {
-    for (let j = 0; j < b.length - 1; j += 1) {
-      const p1 = a[i], q1 = a[i + 1], p2 = b[j], q2 = b[j + 1];
-      const o1 = orientation(p1, q1, p2), o2 = orientation(p1, q1, q2);
-      const o3 = orientation(p2, q2, p1), o4 = orientation(p2, q2, q1);
-      if (Math.abs(o1) <= 1e-9 && onSegment(p1, p2, q1)) return true;
-      if (Math.abs(o2) <= 1e-9 && onSegment(p1, q2, q1)) return true;
-      if (Math.abs(o3) <= 1e-9 && onSegment(p2, p1, q2)) return true;
-      if (Math.abs(o4) <= 1e-9 && onSegment(p2, q1, q2)) return true;
-      if ((o1 > 1e-9) !== (o2 > 1e-9) && (o3 > 1e-9) !== (o4 > 1e-9)) return true;
+  const left = openRingPoints(a);
+  const right = openRingPoints(b);
+  if (left.length < 3 || right.length < 3) return true;
+  const leftBounds = ringBounds(left);
+  const rightBounds = ringBounds(right);
+  if (!boundsOverlap(leftBounds, rightBounds)) return false;
+  // Index the smaller ring into a uniform grid and test only the opposite
+  // segments that share a cell. This preserves the strict touching-edge rule
+  // while avoiding an O(n*m) scan for stairwells with hundreds of vertices.
+  const span = Math.max(
+    leftBounds.maxX - leftBounds.minX,
+    leftBounds.maxZ - leftBounds.minZ,
+    rightBounds.maxX - rightBounds.minX,
+    rightBounds.maxZ - rightBounds.minZ,
+    Math.max(Math.abs(leftBounds.minX), Math.abs(leftBounds.maxX),
+      Math.abs(leftBounds.minZ), Math.abs(leftBounds.maxZ)) * 1e-6,
+    1e-6,
+  );
+  const bucketSize = Math.max(span / Math.max(1, Math.ceil(Math.sqrt(left.length + right.length))), 1e-6);
+  const index = new Map();
+  const bucketKey = (x, z) => Math.floor(x / bucketSize) + ',' + Math.floor(z / bucketSize);
+  for (let indexLeft = 0; indexLeft < left.length; indexLeft += 1) {
+    const bounds = segmentBounds(left[indexLeft], left[(indexLeft + 1) % left.length]);
+    for (let gx = Math.floor(bounds.minX / bucketSize); gx <= Math.floor(bounds.maxX / bucketSize); gx += 1) {
+      for (let gz = Math.floor(bounds.minZ / bucketSize); gz <= Math.floor(bounds.maxZ / bucketSize); gz += 1) {
+        const key = gx + ',' + gz;
+        const list = index.get(key);
+        if (list) list.push(indexLeft);
+        else index.set(key, [indexLeft]);
+      }
+    }
+  }
+  const tested = new Set();
+  for (let indexRight = 0; indexRight < right.length; indexRight += 1) {
+    const bounds = segmentBounds(right[indexRight], right[(indexRight + 1) % right.length]);
+    for (let gx = Math.floor(bounds.minX / bucketSize); gx <= Math.floor(bounds.maxX / bucketSize); gx += 1) {
+      for (let gz = Math.floor(bounds.minZ / bucketSize); gz <= Math.floor(bounds.maxZ / bucketSize); gz += 1) {
+        for (const indexLeft of index.get(gx + ',' + gz) || []) {
+          const key = indexLeft * right.length + indexRight;
+          if (tested.has(key)) continue;
+          tested.add(key);
+          if (ringSegmentsIntersect(
+            left[indexLeft], left[(indexLeft + 1) % left.length],
+            right[indexRight], right[(indexRight + 1) % right.length],
+          )) return true;
+        }
+      }
     }
   }
   return false;
 }
 
-function validHoleInsideOuter(hole, outer) {
-  if (hole.length < 4) return false;
-  const probe = ringInteriorPoint(hole, 0.01);
+function validHoleInsideOuter(hole, outer, cellSize) {
+  if (!isValidClosedRing(hole) || !isValidClosedRing(outer)) return false;
+  const holeBounds = ringBounds(hole);
+  const outerBounds = ringBounds(outer);
+  if (!boundsOverlap(holeBounds, outerBounds)) return false;
+  const probe = ringInteriorPoint(hole, cellSize);
   if (!pointInRing(probe[0], probe[1], outer)) return false;
   if (ringEdgesIntersect(hole, outer)) return false;
-  return hole.slice(0, -1).every((point) => pointInRing(point[0], point[1], outer));
+  return openRingPoints(hole).every((point) => pointInRing(point[0], point[1], outer));
 }
 
-function extractExteriorAndHoles(loops, cellSize, tolerance) {
-  if (!loops.length) return null;
-  let outerIndex = 0;
-  for (let index = 1; index < loops.length; index += 1) {
-    if (Math.abs(ringArea(loops[index])) > Math.abs(ringArea(loops[outerIndex]))) outerIndex = index;
+function holesOverlap(left, right) {
+  if (!boundsOverlap(ringBounds(left), ringBounds(right))) return false;
+  if (ringEdgesIntersect(left, right)) return true;
+  const leftPoints = openRingPoints(left);
+  const rightPoints = openRingPoints(right);
+  return leftPoints.some((point) => pointInRing(point[0], point[1], right))
+    || rightPoints.some((point) => pointInRing(point[0], point[1], left));
+}
+
+function isValidRegionContour(contour, cellSize) {
+  if (!contour || !isValidClosedRing(contour.outer) || !Array.isArray(contour.holes)) return false;
+  const outerArea = Math.abs(ringArea(contour.outer));
+  const outerBounds = ringBounds(contour.outer);
+  let holeArea = 0;
+  for (let index = 0; index < contour.holes.length; index += 1) {
+    const hole = contour.holes[index];
+    if (!validHoleInsideOuter(hole, contour.outer, cellSize)) return false;
+    holeArea += Math.abs(ringArea(hole));
+    const holeBounds = ringBounds(hole);
+    for (let other = index + 1; other < contour.holes.length; other += 1) {
+      if (holesOverlap(hole, contour.holes[other])) return false;
+    }
   }
-  const outer = forceRingWinding(smoothClosedRing(loops[outerIndex], tolerance), true);
-  if (outer.length < 4) return null;
+  return holeArea + 1e-8 < outerArea;
+}
+
+export function extractExteriorAndHoles(loops, cellSize, tolerance, debug = false) {
+  if (!Array.isArray(loops) || !loops.length) return null;
+  const ordered = loops.map((ring, index) => ({ ring, index, area: Math.abs(ringArea(ring)) }))
+    .sort((left, right) => right.area - left.area);
+  const rawOuter = ordered[0].ring;
+  let rawOuterCollision = null;
+  if (debug && ringSelfIntersects(rawOuter)) {
+    const pts = openRingPoints(rawOuter);
+    outer: for (let i = 0; i < pts.length; i += 1) {
+      for (let j = i + 1; j < pts.length; j += 1) {
+        const inx = (i + 1) % pts.length;
+        const jnx = (j + 1) % pts.length;
+        if (i === j || inx === j || jnx === i) continue;
+        if (ringSegmentsIntersect(pts[i], pts[inx], pts[j], pts[jnx])) {
+          rawOuterCollision = { i, j, a: pts[i], b: pts[inx], c: pts[j], d: pts[jnx] };
+          break outer;
+        }
+      }
+    }
+  }
+  const outer = smoothClosedRing(ordered[0].ring, tolerance);
+  if (!outer || !isValidClosedRing(outer)) {
+    if (debug) console.log('AUTO_CONTOUR_REJECT', 'outer', {
+      loopCount: loops.length,
+      rawPoints: ordered[0].ring.length,
+      outerPoints: outer?.length || 0,
+      rawSelf: ringSelfIntersects(ordered[0].ring),
+      outerSelf: outer ? ringSelfIntersects(outer) : null,
+      outerArea: outer ? ringArea(outer) : 0,
+      collision: rawOuterCollision,
+    });
+    return null;
+  }
+  const orientedOuter = forceRingWinding(outer, true);
   const holes = [];
-  for (let index = 0; index < loops.length; index += 1) {
-    if (index === outerIndex) continue;
-    const probe = ringInteriorPoint(loops[index], cellSize);
-    if (!pointInRing(probe[0], probe[1], outer)) continue;
-    const hole = forceRingWinding(smoothClosedRing(loops[index], tolerance), false);
-    if (!validHoleInsideOuter(hole, outer)) continue;
-    if (holes.some((existing) => ringEdgesIntersect(existing, hole)
-      || hole.some((point) => pointInRing(point[0], point[1], existing))
-      || existing.some((point) => pointInRing(point[0], point[1], hole)))) continue;
+  for (let index = 1; index < ordered.length; index += 1) {
+    const candidate = smoothClosedRing(ordered[index].ring, tolerance);
+    if (!candidate) continue;
+    const hole = forceRingWinding(candidate, false);
+    if (!validHoleInsideOuter(hole, orientedOuter, cellSize)) continue;
+    if (holes.some((existing) => holesOverlap(existing, hole))) continue;
     holes.push(hole);
   }
-  return { outer, holes };
+  const contour = { outer: orientedOuter, holes };
+  const valid = isValidRegionContour(contour, cellSize);
+  if (debug && !valid) console.log('AUTO_CONTOUR_REJECT', 'final', {
+    loopCount: loops.length,
+    outerPoints: orientedOuter.length,
+    holes: holes.length,
+    outerArea: Math.abs(ringArea(orientedOuter)),
+    holeArea: holes.reduce((sum, hole) => sum + Math.abs(ringArea(hole)), 0),
+  });
+  return valid ? contour : null;
 }
 
 function erodeMask(source, width, height, radius) {
@@ -849,6 +1361,108 @@ function erodeMask(source, width, height, radius) {
   return eroded;
 }
 
+function dilateMask(source, width, height, radius) {
+  if (radius <= 0) return source.slice();
+  const horizontal = new Uint8Array(source.length);
+  const dilated = new Uint8Array(source.length);
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      let found = false;
+      for (let offset = -radius; offset <= radius && !found; offset += 1) {
+        const neighbor = col + offset;
+        if (neighbor >= 0 && neighbor < width && source[row * width + neighbor]) found = true;
+      }
+      if (found) horizontal[row * width + col] = 1;
+    }
+  }
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      if (!horizontal[row * width + col]) continue;
+      let found = false;
+      for (let offset = -radius; offset <= radius && !found; offset += 1) {
+        const neighbor = row + offset;
+        if (neighbor >= 0 && neighbor < height && horizontal[neighbor * width + col]) found = true;
+      }
+      if (found) dilated[row * width + col] = 1;
+    }
+  }
+  return dilated;
+}
+
+function maskAreaCells(mask) {
+  let count = 0;
+  for (let index = 0; index < mask.length; index += 1) count += mask[index] ? 1 : 0;
+  return count;
+}
+
+function partitionMaskAroundSeeds(mask, seeds, width, height) {
+  const labels = new Int32Array(mask.length);
+  labels.fill(-1);
+  const queue = new Int32Array(mask.length);
+  let head = 0;
+  let tail = 0;
+  for (let seedIndex = 0; seedIndex < seeds.length; seedIndex += 1) {
+    for (const index of seeds[seedIndex].cells) {
+      if (!mask[index] || labels[index] !== -1) continue;
+      labels[index] = seedIndex;
+      queue[tail++] = index;
+    }
+  }
+  while (head < tail) {
+    const index = queue[head++];
+    const owner = labels[index];
+    const row = Math.floor(index / width);
+    const col = index - row * width;
+    const neighbors = [0, 0, 0, 0];
+    let count = 0;
+    if (row > 0) neighbors[count++] = index - width;
+    if (row + 1 < height) neighbors[count++] = index + width;
+    if (col > 0) neighbors[count++] = index - 1;
+    if (col + 1 < width) neighbors[count++] = index + 1;
+    for (let neighborIndex = 0; neighborIndex < count; neighborIndex += 1) {
+      const next = neighbors[neighborIndex];
+      if (!mask[next] || labels[next] !== -1) continue;
+      labels[next] = owner;
+      queue[tail++] = next;
+    }
+  }
+
+  // nav3d.py treats a shared edge or vertex as connected. Remove a one-cell
+  // band wherever two owners meet (including diagonal contact), then keep the
+  // largest 4-connected body of each side. A sub-person-width neck therefore
+  // becomes a real navigation gap instead of an outline-only split.
+  const separated = labels.slice();
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      const index = row * width + col;
+      if (labels[index] < 0) continue;
+      for (let dz = -1; dz <= 1; dz += 1) {
+        const nextRow = row + dz;
+        if (nextRow < 0 || nextRow >= height) continue;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          if (!dx && !dz) continue;
+          const nextCol = col + dx;
+          if (nextCol < 0 || nextCol >= width) continue;
+          const next = nextRow * width + nextCol;
+          if (labels[next] >= 0 && labels[next] !== labels[index]) separated[index] = -1;
+        }
+      }
+    }
+  }
+  for (let owner = 0; owner < seeds.length; owner += 1) {
+    const ownerMask = new Uint8Array(mask.length);
+    for (let index = 0; index < separated.length; index += 1) {
+      if (separated[index] === owner) ownerMask[index] = 1;
+    }
+    const parts = labelComponents(ownerMask, width, height).components
+      .sort((a, b) => b.cells.length - a.cells.length);
+    for (let partIndex = 1; partIndex < parts.length; partIndex += 1) {
+      for (const index of parts[partIndex].cells) separated[index] = -1;
+    }
+  }
+  return separated;
+}
+
 function createRegions(layer, options, grid, obstacles = null, debugLabel = '') {
   const { cellSize, originX, originZ, width, height } = grid;
   const freeMask = new Uint8Array(grid.total);
@@ -858,8 +1472,9 @@ function createRegions(layer, options, grid, obstacles = null, debugLabel = '') 
   const labelled = labelComponents(freeMask, width, height);
   const minimumCells = Math.max(1, Math.ceil(optionNumber(options, 'minRegionArea') / (cellSize * cellSize)));
   const minimumWidth = optionNumber(options, 'minWalkableWidth');
+  const personDiameter = optionNumber(options, 'minPersonDiameter');
   const tolerance = optionNumber(options, 'simplifyTolerance');
-  const radius = Math.max(1, Math.round(minimumWidth * 0.5 / cellSize));
+  const radius = Math.max(1, Math.round(personDiameter * 0.5 / cellSize));
   const regions = [];
   const debug = Boolean(options.debug);
 
@@ -874,89 +1489,177 @@ function createRegions(layer, options, grid, obstacles = null, debugLabel = '') 
     const widthResult = widestPathWidth(mask, width, height, distanceMap, cellSize);
     const minWidth = widthResult.width;
 
-    // Width is a diagnostic, not a reason to discard an entire floor. The
-    // existing doors can be narrower than the default person radius. Erosion is
-    // used only to quantify which parts of a component are cut off by necks.
+    // Recast's core rule is that the agent's full footprint must clear the
+    // surface. Doors just above the physical person diameter stay as candidates
+    // but make the component ineligible for an automatic duplicate. Corrosion is
+    // only applied below the person diameter, where no body can pass.
+    const physicallyBlocked = minWidth + 1e-9 < personDiameter;
     const eroded = erodeMask(mask, width, height, radius);
     const erodedLabels = labelComponents(eroded, width, height);
-    const largestEroded = erodedLabels.components.sort((a, b) => b.cells.length - a.cells.length)[0];
+    const erodedParts = erodedLabels.components
+      .filter((part) => part.cells.length * cellSize * cellSize >= Math.min(
+        optionNumber(options, 'minRegionArea') * 0.5,
+        0.75,
+      ))
+      .sort((a, b) => b.cells.length - a.cells.length);
     let cutWidthArea = 0;
-    if (!largestEroded) cutWidthArea = component.cells.length;
-    else if (erodedLabels.components.length > 1) {
-      cutWidthArea = erodedLabels.components.slice(1).reduce((sum, part) => sum + part.cells.length, 0);
+    if (!erodedParts.length) cutWidthArea = component.cells.length;
+    else if (physicallyBlocked && erodedParts.length > 1) {
+      cutWidthArea = erodedParts.slice(1).reduce((sum, part) => sum + part.cells.length, 0);
     } else if (minWidth + 1e-9 < minimumWidth) {
       cutWidthArea = component.cells.length;
     }
 
-    const loops = traceBoundaryLoops(mask, width, height, originX, originZ, cellSize);
-    if (!loops.length) {
-      if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'no-loop', component.cells.length * cellSize * cellSize);
-      continue;
+    const splitAttempted = physicallyBlocked && erodedParts.length > 1;
+    const partition = splitAttempted
+      ? partitionMaskAroundSeeds(mask, erodedParts, width, height)
+      : null;
+    const splitMasks = partition ? erodedParts.map((part, owner) => {
+      const owned = new Uint8Array(grid.total);
+      for (let index = 0; index < partition.length; index += 1) {
+        if (partition[index] === owner) owned[index] = 1;
+      }
+      return owned;
+    }) : [];
+
+    const buildCandidate = (candidate, splitApplied, candidateIndex) => {
+      const clipped = new Uint8Array(grid.total);
+      for (let index = 0; index < candidate.length; index += 1) {
+        if (candidate[index] && freeMask[index]) clipped[index] = 1;
+      }
+      if (maskAreaCells(clipped) < minimumCells) {
+        if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'clipped-small', candidateIndex);
+        return null;
+      }
+      const ownerCells = [];
+      for (let index = 0; index < clipped.length; index += 1) if (clipped[index]) ownerCells.push(index);
+      const loops = traceBoundaryLoops(clipped, width, height, originX, originZ, cellSize);
+      if (debug) {
+        const areas = loops.map(loop => Number(ringArea(loop).toFixed(3))).sort((a, b) => Math.abs(b) - Math.abs(a)).slice(0, 8);
+        const points = loops.map(loop => loop.length).sort((a, b) => b - a).slice(0, 8);
+        console.log('AUTO_TRACE_DEBUG', debugLabel, JSON.stringify({ loops: loops.length, areas, points }));
+      }
+      if (!loops.length) {
+        if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'no-loop', ownerCells.length * cellSize * cellSize);
+        return null;
+      }
+      const contour = extractExteriorAndHoles(loops, cellSize, tolerance, debug);
+      if (!contour) {
+        if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'invalid-contour', loops.length);
+        return null;
+      }
+      const area = ownerCells.length * cellSize * cellSize;
+      const contourOuterArea = Math.abs(ringArea(contour.outer));
+      const holeArea = contour.holes.reduce((sum, hole) => sum + Math.abs(ringArea(hole)), 0);
+      const contourRatio = contourOuterArea > 0 ? Math.max(0, contourOuterArea - holeArea) / area : 0;
+      if (contourRatio < 0.8 || contourRatio > 1.25) {
+        if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'contour', contourRatio, area, loops.length, contour.outer.length);
+        return null;
+      }
+      const holeAreaM2 = contour.holes.reduce((sum, hole) => sum + Math.abs(ringArea(hole)), 0);
+      const minimumHoleArea = Number(options.minHoleArea);
+      if (Number.isFinite(minimumHoleArea) && minimumHoleArea > 0 && contour.holes.length) {
+        const keptHoles = contour.holes.filter((hole) => Math.abs(ringArea(hole)) + 1e-8 >= minimumHoleArea);
+        if (debug && keptHoles.length !== contour.holes.length) {
+          console.log('AUTO_HOLE_FILTER', debugLabel, contour.holes.length - keptHoles.length, minimumHoleArea);
+        }
+        contour.holes = keptHoles;
+      }
+      const cutWidthAreaM2 = minWidth + 1e-9 < minimumWidth ? cutWidthArea * cellSize * cellSize : 0;
+      const warnings = [];
+      if (splitApplied) {
+        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于人员直径 ' + personDiameter.toFixed(2) + ' m；已按人体半径将两侧楼面分别提取，请逐块确认。');
+      } else if (splitAttempted) {
+        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于人员直径 ' + personDiameter.toFixed(2) + ' m；拆分未能稳定生成全部独立轮廓，已回退为完整区域，请人工确认是否不可通行。');
+      } else if (minWidth + 1e-9 < minimumWidth) {
+        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于推荐通行宽度 ' + minimumWidth.toFixed(2) + ' m，但大于人员直径 ' + personDiameter.toFixed(2) + ' m；请人工核对是否需要保留。');
+      }
+      return {
+        outer: contour.outer,
+        holes: contour.holes,
+        area,
+        minWidth,
+        cutWidthAreaM2,
+        splitComponents: splitApplied ? splitMasks.length : widthResult.splitComponents,
+        minWidthIsEstimate: Boolean(widthResult.isEstimate),
+        physicallyBlocked,
+        splitApplied,
+        warnings,
+        confidence: physicallyBlocked ? 'low' : minWidth >= Math.max(1.2, minimumWidth * 1.5) ? 'high' : 'medium',
+      };
+    };
+
+    // A split is committed atomically. If any side fails area or contour
+    // validation, keep the complete parent mask instead of leaking a half-room.
+    let builtCandidates = [];
+    if (splitAttempted) {
+      builtCandidates = splitMasks.map((candidate, candidateIndex) => (
+        buildCandidate(candidate, true, candidateIndex)
+      ));
+      if (builtCandidates.length < 2 || builtCandidates.some((candidate) => !candidate)) {
+        if (debug) console.log('AUTO_REGION_SPLIT_FALLBACK', debugLabel, builtCandidates.length);
+        builtCandidates = [];
+      }
     }
-    const contour = extractExteriorAndHoles(loops, cellSize, tolerance);
-    if (!contour) {
-      if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'no-outer', loops.length);
-      continue;
+    if (!builtCandidates.length) {
+      const fallback = buildCandidate(mask, false, 0);
+      if (fallback) regions.push(fallback);
+    } else {
+      regions.push(...builtCandidates);
     }
-    const area = component.cells.length * cellSize * cellSize;
-    const contourOuterArea = Math.abs(ringArea(contour.outer));
-    const holeArea = contour.holes.reduce((sum, hole) => sum + Math.abs(ringArea(hole)), 0);
-    const contourRatio = contourOuterArea > 0 ? Math.max(0, contourOuterArea - holeArea) / area : 0;
-    if (contourRatio < 0.8 || contourRatio > 1.25) {
-      if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'contour', contourRatio, area, loops.length, contour.outer.length);
-      continue;
-    }
-    const cutWidthAreaM2 = minWidth + 1e-9 < minimumWidth ? cutWidthArea * cellSize * cellSize : 0;
-    const warnings = [];
-    const personDiameter = optionNumber(options, 'minPersonDiameter');
-    const physicallyBlocked = minWidth + 1e-9 < personDiameter;
-    if (physicallyBlocked) {
-      warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于人员直径 ' + personDiameter.toFixed(2) + ' m；该连通分量不可作为自动通行区域接受，请重新绘制或人工确认。');
-    } else if (minWidth + 1e-9 < minimumWidth) {
-      warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于推荐通行宽度 ' + minimumWidth.toFixed(2) + ' m，但大于人员直径 ' + personDiameter.toFixed(2) + ' m；请人工核对是否需要保留。');
-    }
-    regions.push({
-      outer: contour.outer,
-      holes: contour.holes,
-      area,
-      minWidth,
-      cutWidthAreaM2,
-      splitComponents: widthResult.splitComponents,
-      minWidthIsEstimate: Boolean(widthResult.isEstimate),
-      physicallyBlocked,
-      warnings,
-      confidence: physicallyBlocked ? 'low' : minWidth >= Math.max(1.2, minimumWidth * 1.5) ? 'high' : 'medium',
-    });
   }
 
   return regions;
 }
+function serializeRegions(regions, options, idPrefix) {
+  return regions.map((region, regionIndex) => ({
+    id: idPrefix + '-region-' + (regionIndex + 1),
+    outer: region.outer,
+    holes: region.holes,
+    area_m2: Number(region.area.toFixed(2)),
+    min_width_m: Number(region.minWidth.toFixed(2)),
+    min_width_is_estimate: Boolean(region.minWidthIsEstimate),
+    min_width_split_components: Number(region.splitComponents || 0),
+    split_applied: Boolean(region.splitApplied),
+    width_cut_area_m2: Number(region.cutWidthAreaM2.toFixed(2)),
+    hole_count: Array.isArray(region.holes) ? region.holes.length : 0,
+    near_width_limit: Number(region.minWidth) + 1e-9 < optionNumber(options, 'minWalkableWidth'),
+    physically_blocked: Boolean(region.physicallyBlocked),
+    width_cut_warning: Array.isArray(region.warnings) && region.warnings.length > 0,
+    warnings: region.warnings,
+    confidence: region.confidence,
+  }));
+}
+
 function generatedFloorLabel(index) {
   const names = ['一层', '二层', '三层', '四层', '五层', '六层', '七层', '八层'];
   return names[index] || ('第' + (index + 1) + '层');
 }
 
-export function analyzeGeometry(positions, indices, options = {}, requestId = 'local') {
+export function analyzeGeometry(positions, indices, options = {}, requestId = 'local', semantics = null) {
   const mergedOptions = { ...DEFAULTS, ...options };
   const thresholds = {
     min_walkable_width_m: optionNumber(mergedOptions, 'minWalkableWidth'),
+    min_hole_area_m2: optionNumber(mergedOptions, 'minHoleArea'),
     min_person_diameter_m: optionNumber(mergedOptions, 'minPersonDiameter'),
     min_above_coverage: optionNumber(mergedOptions, 'minAboveCoverage'),
     min_story_clearance_m: optionNumber(mergedOptions, 'minStoryClearance'),
+    max_coincident_face_gap_m: optionNumber(mergedOptions, 'maxCoincidentFaceGap'),
+    min_coincident_face_area_m2: optionNumber(mergedOptions, 'minCoincidentFaceArea'),
   };
   const started = performance.now();
   if (!positions || !indices || indices.length < 3) {
-    return { floors: [], holes: [], stairs: [], doors: [], stats: { triangleCount: 0, horizontalTriangleCount: 0, analysisMs: 0 }, warnings: ['模型中没有可分析的三角网格。'], diagnostics: { thresholds } };
+    return { floors: [], exclusions: [], excludedFloors: [], holes: [], stairs: [], doors: [], stats: { triangleCount: 0, horizontalTriangleCount: 0, analysisMs: 0 }, warnings: ['模型中没有可分析的三角网格。'], diagnostics: { thresholds } };
   }
 
-  const scanned = scanUpwardTriangles(positions, indices, mergedOptions, requestId);
+  const scanned = scanUpwardTriangles(positions, indices, mergedOptions, requestId, semantics);
   if (!scanned) return null;
   const layers = clusterHeightLayers(scanned.bins, mergedOptions);
   emitProgress(requestId, 'floor-clustering', 0.36, '发现 ' + layers.length + ' 个朝上高度层');
 
   if (!layers.length || !scanned.bounds) {
     return {
-      floors: [], holes: [], stairs: [], doors: [],
+      floors: [], exclusions: [], excludedFloors: [], holes: [], stairs: [], doors: [],
       stats: { triangleCount: scanned.triangleCount, horizontalTriangleCount: scanned.upwardCount, analysisMs: Math.round(performance.now() - started) },
       warnings: ['未找到朝上的水平面，请检查模型朝向或比例。'],
       diagnostics: { thresholds },
@@ -968,12 +1671,15 @@ export function analyzeGeometry(positions, indices, options = {}, requestId = 'l
   // The school model contains a complete roof slab. Enable roof removal only
   // for a building-scale grid; small isolated rooms and unit tests keep their
   // highest exposed floor.
-  if (!Object.prototype.hasOwnProperty.call(options, 'removeRoof') && grid.total >= 25000) {
+  const roofRemovalExplicit = Object.prototype.hasOwnProperty.call(options, 'removeRoof');
+  mergedOptions.roofRemovalExplicit = roofRemovalExplicit ? 1 : 0;
+  if (!roofRemovalExplicit && grid.total >= 25000) {
     mergedOptions.removeRoof = 1;
   }
-  const structural = selectFloorLayers(rasterized, mergedOptions, grid);
+  const structural = selectFloorLayers(rasterized, mergedOptions, grid, semantics);
   const selected = structural.selected;
-  const removedRoof = structural.removedRoof;
+  const excludedFloors = Array.isArray(structural.excludedFloors) ? structural.excludedFloors : [];
+  const excludedLayers = Array.isArray(structural.excludedLayers) ? structural.excludedLayers : [];
   const largestArea = Math.max(0, ...selected.map((layer) => layer.rasterArea));
   const minimumFloorArea = Math.max(
     optionNumber(mergedOptions, 'minFloorArea'),
@@ -996,13 +1702,23 @@ export function analyzeGeometry(positions, indices, options = {}, requestId = 'l
   // existing area guard before the expensive obstacle projection so furniture
   // and decorative surfaces do not multiply the work.
   const eligible = selected.filter((layer) => layer.rasterArea >= optionNumber(mergedOptions, 'minFloorArea'));
+  // Ordinary floors and excluded roof/terrace layers must share one ordered
+  // list. Their obstacle masks and outline extraction then use the same layer
+  // identity, and an excluded surface cannot leak into the floor candidates.
+  const layerJobs = [
+    ...eligible.map((layer) => ({ layer, excluded: false })),
+    ...excludedLayers.map((layer) => ({ layer, excluded: true })),
+  ].sort((a, b) => a.layer.y - b.layer.y);
   const projectionStarted = performance.now();
-  const obstacleProjection = rasterizeObstacleFloors(positions, indices, eligible, grid, mergedOptions, requestId);
+  const obstacleProjection = rasterizeObstacleFloors(
+    positions, indices, layerJobs.map((job) => job.layer), grid, mergedOptions, requestId,
+  );
   if (!obstacleProjection) return null;
   const obstacleMs = Math.round(performance.now() - projectionStarted);
+  const excludedByLayer = new Map(excludedFloors.map((item) => [Number(item.elevation_m), item]));
 
-  for (let floorIndex = 0; floorIndex < eligible.length; floorIndex += 1) {
-    const layer = eligible[floorIndex];
+  for (let floorIndex = 0; floorIndex < layerJobs.length; floorIndex += 1) {
+    const { layer, excluded } = layerJobs[floorIndex];
     emitProgress(requestId, 'walkable-regions', Math.min(0.96, 0.63 + floors.length * 0.08), '正在提取 ' + Number(layer.y.toFixed(2)) + ' m 的可走区');
     const obstacles = obstacleProjection.masks[floorIndex];
     let obstacleCells = 0;
@@ -1019,15 +1735,38 @@ export function analyzeGeometry(positions, indices, options = {}, requestId = 'l
         regionArea: Number(regions.reduce((sum, region) => sum + region.area, 0).toFixed(2)),
       });
     }
-    if (!regions.length) {
-      warnings.push(Number(layer.y.toFixed(2)) + ' m 层未提取到可走区，可能是楼面被障碍完全覆盖或网格不完整。');
+    const area = regions.reduce((sum, region) => sum + region.area, 0);
+    if (excluded) {
+      const auditItem = excludedByLayer.get(Number(layer.y.toFixed(4)));
+      if (auditItem) {
+        auditItem.regions = serializeRegions(regions, mergedOptions, 'auto-excluded-1');
+        auditItem.area_m2 = Number(area.toFixed(2));
+        auditItem.warnings = [...(Array.isArray(auditItem.warnings) ? auditItem.warnings : []), ...regions
+          .flatMap((region) => Array.isArray(region.warnings) ? region.warnings : [])]
+          .filter((message, index, messages) => messages.indexOf(message) === index);
+      }
+      if (debug) {
+        console.log('AUTO_EXCLUDED_STAGE', Number(layer.y.toFixed(4)), {
+          surfaceCells: layer.occupiedCells,
+          obstacleCells,
+          obstacleCoverage: Number(obstacleCoverage.toFixed(3)),
+          obstacleProjectionMs: obstacleMs,
+          regions: regions.length,
+          regionArea: Number(area.toFixed(2)),
+        });
+      }
       continue;
     }
-    const area = regions.reduce((sum, region) => sum + region.area, 0);
-    if (area < minimumFloorArea) continue;
-
     const floorWarnings = [];
+    if (!regions.length) {
+      floorWarnings.push('未提取到可走区。接受本层后请先手工绘制可走区，再保存校准。');
+      warnings.push(Number(layer.y.toFixed(2)) + ' m 层未提取到可走区，已保留为低置信楼层候选。');
+    } else if (area < minimumFloorArea) {
+      floorWarnings.push('自动提取面积低于正式楼层门槛，请对照模型确认是否需要保留。');
+    }
     if (layer.platformSuspected) floorWarnings.push('该水平面未匹配到可靠的下方结构板，可能是平台、家具顶面或屋面。');
+    const reviewLayer = structural.reviewOnlyLayers?.find((candidate) => Math.abs(candidate.y - layer.y) < 1e-4);
+    if (reviewLayer?.roofReview) floorWarnings.push(reviewLayer.roofReview);
     if (obstacleCoverage > 0.55) floorWarnings.push('障碍覆盖率达到 ' + (obstacleCoverage * 100).toFixed(0) + '%，请检查家具或薄面是否被误判为障碍。');
     floors.push({
       id: '',
@@ -1047,7 +1786,8 @@ export function analyzeGeometry(positions, indices, options = {}, requestId = 'l
         platform_suspected: Boolean(layer.platformSuspected),
         structure_match: Boolean(layer.structureMatch),
       },
-      confidence: 'medium',
+      confidence: regions.length ? 'medium' : 'low',
+      requiresManualWalkable: !regions.length,
       regions,
     });
   }
@@ -1058,35 +1798,24 @@ export function analyzeGeometry(positions, indices, options = {}, requestId = 'l
     const floor = floors[floorIndex];
     floor.id = 'auto-floor-' + (floorIndex + 1);
     floor.name = generatedFloorLabel(floorIndex);
-    floor.confidence = floor.area_m2 >= floorMaximum * 0.8 ? 'high' : floor.area_m2 >= floorMaximum * 0.4 ? 'medium' : 'low';
-    for (let regionIndex = 0; regionIndex < floor.regions.length; regionIndex += 1) {
-      const region = floor.regions[regionIndex];
-      floor.regions[regionIndex] = {
-        id: 'auto-region-' + (floorIndex + 1) + '-' + (regionIndex + 1),
-        outer: region.outer,
-        holes: region.holes,
-        area_m2: Number(region.area.toFixed(2)),
-        min_width_m: Number(region.minWidth.toFixed(2)),
-        min_width_is_estimate: Boolean(region.minWidthIsEstimate),
-        min_width_split_components: Number(region.splitComponents || 0),
-        width_cut_area_m2: Number(region.cutWidthAreaM2.toFixed(2)),
-        hole_count: Array.isArray(region.holes) ? region.holes.length : 0,
-        near_width_limit: Number(region.minWidth) + 1e-9 < optionNumber(mergedOptions, 'minWalkableWidth'),
-        physically_blocked: Boolean(region.physicallyBlocked),
-        width_cut_warning: Array.isArray(region.warnings) && region.warnings.length > 0,
-        warnings: region.warnings,
-        confidence: region.confidence,
-      };
-    }
+    floor.confidence = floor.requiresManualWalkable ? 'low' : floor.area_m2 >= floorMaximum * 0.8 ? 'high' : floor.area_m2 >= floorMaximum * 0.4 ? 'medium' : 'low';
+    floor.regions = serializeRegions(
+      floor.regions,
+      mergedOptions,
+      'auto-region-' + (floorIndex + 1),
+    );
   }
 
-  if (removedRoof) {
-    warnings.push('已将 ' + removedRoof.elevation_m.toFixed(2) + ' m 的水平面按屋面排除（上方结构覆盖 ' + Math.round(removedRoof.above_coverage * 100) + '%）。若该层实际为露台或开放式楼层，请在手动绘制中恢复。');
+  for (const excluded of excludedFloors) {
+    warnings.push(excluded.elevation_m.toFixed(2) + ' m 的屋面/露台疑似已从普通楼层排除（上方结构覆盖 ' + Math.round(excluded.above_coverage * 100) + '%），可定位或显式恢复。');
   }
+
   if (!floors.length) warnings.push('未找到面积达到门槛的楼面。请检查模型朝向、比例或最小楼层面积设置。');
   emitProgress(requestId, 'complete', 1, '自动分析完成');
   return {
     floors,
+    exclusions: excludedFloors,
+    excludedFloors,
     holes: [],
     stairs: [],
     doors: [],
@@ -1103,7 +1832,7 @@ export function analyzeGeometry(positions, indices, options = {}, requestId = 'l
 
 if (typeof self !== 'undefined') {
   self.onmessage = (event) => {
-    const { type, requestId, positions, indices, options } = event.data || {};
+    const { type, requestId, positions, indices, materialIds, materialNames, options } = event.data || {};
     if (type === 'cancel') {
       cancelled.add(requestId);
       return;
@@ -1111,7 +1840,7 @@ if (typeof self !== 'undefined') {
     if (type !== 'analyze') return;
     cancelled.delete(requestId);
     try {
-      const result = analyzeGeometry(positions, indices, options, requestId);
+      const result = analyzeGeometry(positions, indices, options, requestId, { triangleMaterialIds: materialIds, materialNames });
       if (result) self.postMessage({ type: 'result', requestId, result });
     } catch (error) {
       self.postMessage({ type: 'error', requestId, message: error?.message || '几何分析失败' });
@@ -1274,9 +2003,14 @@ function rasterizeObstacleFloors(positions, indices, floors, grid, options, requ
           // above the lower walking band or stop before its upper half. Full
           // vertical partitions and columns remain structural obstacles.
           const floorY = floors[floorIndex].y;
-          const triangleTop = Math.max(ay, by, cy);
-          const triangleBottom = Math.min(ay, by, cy);
-          if (triangleBottom > floorY + 0.25 || triangleTop < floorY + 0.45) continue;
+          const span = triangleVerticalSpanInCell(
+            ax, ay, az, bx, by, bz, cx, cy, cz,
+            cellX0, cellZ0, cellX0 + cellSize, cellZ0 + cellSize,
+          );
+          // Recast's span model tests height overlap inside the current column.
+          // A sloped roof must not block every projected cell merely because its
+          // global triangle bounds crosses the walking band somewhere else.
+          if (!span || span[0] > floorY + 0.25 || span[1] < floorY + 0.45) continue;
           obstacleMask[cell] = 1;
         }
       }
