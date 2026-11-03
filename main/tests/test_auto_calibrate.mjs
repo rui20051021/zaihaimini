@@ -290,6 +290,7 @@ function regionDetails(region) {
     min_width_m: region.min_width_m,
     min_width_split_components: region.min_width_split_components,
     hole_count: region.hole_count,
+    hole_area_m2: region.hole_area_m2,
     near_width_limit: region.near_width_limit,
     width_cut_warning: region.width_cut_warning,
     physically_blocked: region.physically_blocked,
@@ -494,6 +495,29 @@ runTest('3b. 栅格鞍点处相切边界必须拆成合法独立环', () => {
   check(inner && pointInRing(1.5, 1.5, inner), '内部小环应覆盖鞍点所属空单元', inner);
 });
 
+runTest('3b2. 纯对角四邻接组件必须分别保留边界', () => {
+  const cases = [
+    maskFromRows([
+      [0, 1],
+      [1, 0],
+    ]),
+    maskFromRows([
+      [0, 1],
+      [1, 0],
+      [1, 0],
+    ]),
+  ];
+  for (const [index, grid] of cases.entries()) {
+    const loops = traceBoundaryLoops(grid.mask, grid.width, grid.height, 0, 0, 1);
+    const occupiedCells = Array.from(grid.mask).filter(Boolean).length;
+    const diagonalComponents = index === 0 ? 2 : 2;
+    checkEqual(loops.length, diagonalComponents, '对角案例 ' + (index + 1) + ' 的每个四邻接组件都应保留独立边界', loops);
+    check(loops.every((loop) => !ringSelfIntersects(loop)), '对角组件边界不得在共享格点形成自交', loops);
+    near(loops.reduce((total, loop) => total + Math.abs(polygonArea(loop)), 0), occupiedCells, 1e-6,
+      '对角组件边界面积之和应等于占用的栅格单元数', loops);
+  }
+});
+
 runTest('3c. 相切孔洞与重复非相邻顶点不得形成自交', () => {
   const touching = [
     [[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]],
@@ -527,6 +551,7 @@ runTest('3d. 微小孔洞按阈值过滤，真实楼板缺口保留', () => {
   if (!region) return;
   checkEqual(region.hole_count, 1, '0.15m × 0.15m 接缝孔洞应被过滤，4m × 4m 真实缺口应保留', regionDetails(region));
   near(Math.abs(polygonArea(region.holes[0] || [])), 16, 0.8, '保留的真实缺口面积应约为 16 m²');
+  near(region.hole_area_m2, 16, 1.2, 'hole_area_m2 必须只统计过滤后保留的孔洞');
   check(Boolean(result.diagnostics?.thresholds?.min_hole_area_m2), '诊断信息应包含最小孔洞面积阈值', result.diagnostics?.thresholds);
 });
 
@@ -591,7 +616,7 @@ function ringsShareBoundary(a, b) {
 
   const narrowFloor = findFloor(narrow, 0.12);
   if (!narrowFloor) return;
-  checkEqual(narrowFloor.regions.length, 2, '0.2m 窄口小于人员直径，应切成两个区域', narrowFloor.regions.map(regionDetails));
+  checkEqual(narrowFloor.regions.length, 2, '0.2m 窄口小于碰撞代理直径，应切成两个区域', narrowFloor.regions.map(regionDetails));
   near(narrowFloor.area_m2, 60.2, 1.5, '窄口哑铃两区域合计面积应约为 60 m²');
   check(narrowFloor.regions.every((region) => region.physically_blocked === true),
     '窄口两侧区域都应保留低置信警告', narrowFloor.regions.map(regionDetails));
@@ -623,7 +648,7 @@ function ringsShareBoundary(a, b) {
   ]), 'dumbbell-0.6');
   const passableFloor = findFloor(narrowButPassable, 0.12);
   if (passableFloor) {
-    checkEqual(passableFloor.regions.length, 1, '0.6m 连接大于人员直径，应保留为一个待复核区域',
+    checkEqual(passableFloor.regions.length, 1, '0.6m 连接大于碰撞代理直径，应保留为一个待复核区域',
       passableFloor.regions.map(regionDetails));
     const region = passableFloor.regions[0];
     if (region) {
@@ -668,7 +693,7 @@ function ringsShareBoundary(a, b) {
   checkEqual(wideRegion.warnings.length, 0, '1.2m 宽口不应产生窄口 warning', regionDetails(wideRegion));
   check(wideRegion.width_cut_warning === false, '1.2m 宽口不应标记 width_cut_warning', regionDetails(wideRegion));
   check(wideRegion.near_width_limit === false, '1.2m 宽口不应标记 near_width_limit', regionDetails(wideRegion));
-  check(wideRegion.physically_blocked === false, '1.2m 宽口应满足人员直径判定', regionDetails(wideRegion));
+  check(wideRegion.physically_blocked === false, '1.2m 宽口应满足碰撞代理直径判定', regionDetails(wideRegion));
 });
 
 runTest('7. 桌面、0.30m/0.10m 低平台和斜屋顶过滤', () => {

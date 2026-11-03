@@ -977,6 +977,46 @@ export function smoothClosedRing(ring, tolerance) {
 }
 
 export function traceBoundaryLoops(mask, width, height, originX, originZ, cellSize) {
+  // Trace each four-neighbour component independently. Diagonal-only cells are
+  // separate walkable components in navigation terms, but their boundaries
+  // share a lattice vertex. Pairing all edges globally at that degree-four
+  // vertex can invalidate both loops. Isolating components removes only that
+  // cross-component ambiguity; holes inside each component still use the
+  // saddle-aware tracer below.
+  const componentVisited = new Uint8Array(width * height);
+  const components = [];
+  for (let startIndex = 0; startIndex < mask.length; startIndex += 1) {
+    if (!mask[startIndex] || componentVisited[startIndex]) continue;
+    const queue = [startIndex];
+    componentVisited[startIndex] = 1;
+    const cells = [];
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const cell = queue[cursor];
+      cells.push(cell);
+      const col = cell % width;
+      const row = Math.floor(cell / width);
+      const neighbours = [];
+      if (row > 0) neighbours.push(cell - width);
+      if (row + 1 < height) neighbours.push(cell + width);
+      if (col > 0) neighbours.push(cell - 1);
+      if (col + 1 < width) neighbours.push(cell + 1);
+      for (const neighbour of neighbours) {
+        if (mask[neighbour] && !componentVisited[neighbour]) {
+          componentVisited[neighbour] = 1;
+          queue.push(neighbour);
+        }
+      }
+    }
+    components.push(cells);
+  }
+  if (components.length > 1) {
+    return components.flatMap((cells) => {
+      const componentMask = new Uint8Array(width * height);
+      for (const cell of cells) componentMask[cell] = 1;
+      return traceBoundaryLoops(componentMask, width, height, originX, originZ, cellSize);
+    });
+  }
+
   const outgoing = new Map();
   const addEdge = (x0, z0, x1, z1, cell) => {
     const from = z0 * (width + 1) + x0;
@@ -1556,7 +1596,6 @@ function createRegions(layer, options, grid, obstacles = null, debugLabel = '') 
         if (debug) console.log('AUTO_REGION_REJECT', debugLabel, 'contour', contourRatio, area, loops.length, contour.outer.length);
         return null;
       }
-      const holeAreaM2 = contour.holes.reduce((sum, hole) => sum + Math.abs(ringArea(hole)), 0);
       const minimumHoleArea = Number(options.minHoleArea);
       if (Number.isFinite(minimumHoleArea) && minimumHoleArea > 0 && contour.holes.length) {
         const keptHoles = contour.holes.filter((hole) => Math.abs(ringArea(hole)) + 1e-8 >= minimumHoleArea);
@@ -1565,19 +1604,21 @@ function createRegions(layer, options, grid, obstacles = null, debugLabel = '') 
         }
         contour.holes = keptHoles;
       }
+      const holeAreaM2 = contour.holes.reduce((sum, hole) => sum + Math.abs(ringArea(hole)), 0);
       const cutWidthAreaM2 = minWidth + 1e-9 < minimumWidth ? cutWidthArea * cellSize * cellSize : 0;
       const warnings = [];
       if (splitApplied) {
-        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于人员直径 ' + personDiameter.toFixed(2) + ' m；已按人体半径将两侧楼面分别提取，请逐块确认。');
+        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于碰撞代理直径 ' + personDiameter.toFixed(2) + ' m；已按碰撞代理半径将两侧楼面分别提取，请逐块确认。');
       } else if (splitAttempted) {
-        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于人员直径 ' + personDiameter.toFixed(2) + ' m；拆分未能稳定生成全部独立轮廓，已回退为完整区域，请人工确认是否不可通行。');
+        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于碰撞代理直径 ' + personDiameter.toFixed(2) + ' m；拆分未能稳定生成全部独立轮廓，已回退为完整区域，请人工确认是否不可通行。');
       } else if (minWidth + 1e-9 < minimumWidth) {
-        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于推荐通行宽度 ' + minimumWidth.toFixed(2) + ' m，但大于人员直径 ' + personDiameter.toFixed(2) + ' m；请人工核对是否需要保留。');
+        warnings.push('检测到约 ' + minWidth.toFixed(2) + ' m 的窄口，小于推荐通行宽度 ' + minimumWidth.toFixed(2) + ' m，但大于碰撞代理直径 ' + personDiameter.toFixed(2) + ' m；请人工核对是否需要保留。');
       }
       return {
         outer: contour.outer,
         holes: contour.holes,
         area,
+        holeAreaM2,
         minWidth,
         cutWidthAreaM2,
         splitComponents: splitApplied ? splitMasks.length : widthResult.splitComponents,
@@ -1623,6 +1664,7 @@ function serializeRegions(regions, options, idPrefix) {
     split_applied: Boolean(region.splitApplied),
     width_cut_area_m2: Number(region.cutWidthAreaM2.toFixed(2)),
     hole_count: Array.isArray(region.holes) ? region.holes.length : 0,
+    hole_area_m2: Number(Number(region.holeAreaM2 || 0).toFixed(2)),
     near_width_limit: Number(region.minWidth) + 1e-9 < optionNumber(options, 'minWalkableWidth'),
     physically_blocked: Boolean(region.physicallyBlocked),
     width_cut_warning: Array.isArray(region.warnings) && region.warnings.length > 0,

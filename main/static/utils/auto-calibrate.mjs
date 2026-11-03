@@ -1,4 +1,4 @@
-const WORKER_URL = '/static/utils/auto-calibrate-worker.mjs?v=20261103b';
+const WORKER_URL = '/static/utils/auto-calibrate-worker.mjs?v=20261104a';
 
 function transformVertex(attribute, index, elements) {
   // Position accessors may be interleaved with normals or UVs and may use

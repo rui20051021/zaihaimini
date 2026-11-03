@@ -210,6 +210,85 @@ function normalizeAutoRegion(region, id, label) {
   return { id, outer, holes };
 }
 
+function pointStrictlyInRing2D(point, ring) {
+  return pointInRing2D(point, ring) && !pointOnRing2D(point, ring);
+}
+
+function pointOnRing2D(point, ring) {
+  return ring.some((start, index) => pointOnSegment2D(point, start, ring[(index + 1) % ring.length]));
+}
+
+function pointStrictlyInRegion2D(point, region) {
+  if (!pointStrictlyInRing2D(point, region.outer)) return false;
+  return !region.holes.some((hole) => pointInRing2D(point, hole));
+}
+
+function segmentIntersectionParameters2D(a, b, c, d) {
+  const parameters = [];
+  const rx = b[0] - a[0];
+  const rz = b[1] - a[1];
+  const sx = d[0] - c[0];
+  const sz = d[1] - c[1];
+  const denominator = rx * sz - rz * sx;
+  const offsetX = c[0] - a[0];
+  const offsetZ = c[1] - a[1];
+  if (Math.abs(denominator) > EPSILON) {
+    const t = (offsetX * sz - offsetZ * sx) / denominator;
+    const u = (offsetX * rz - offsetZ * rx) / denominator;
+    if (t >= -EPSILON && t <= 1 + EPSILON && u >= -EPSILON && u <= 1 + EPSILON) {
+      parameters.push(Math.max(0, Math.min(1, t)));
+    }
+    return parameters;
+  }
+  if (Math.abs(offsetX * rz - offsetZ * rx) > EPSILON) return parameters;
+  const lengthSquared = rx * rx + rz * rz;
+  if (lengthSquared <= EPSILON) return parameters;
+  for (const point of [c, d]) {
+    const t = ((point[0] - a[0]) * rx + (point[1] - a[1]) * rz) / lengthSquared;
+    if (t >= -EPSILON && t <= 1 + EPSILON) parameters.push(Math.max(0, Math.min(1, t)));
+  }
+  return parameters;
+}
+
+function edgeEntersRegion2D(start, end, region) {
+  const boundaries = [region.outer, ...region.holes];
+  const parameters = [0, 1];
+  for (const ring of boundaries) {
+    for (let index = 0; index < ring.length; index += 1) {
+      parameters.push(...segmentIntersectionParameters2D(
+        start,
+        end,
+        ring[index],
+        ring[(index + 1) % ring.length],
+      ));
+    }
+  }
+  parameters.sort((left, right) => left - right);
+  const unique = parameters.filter((value, index) => index === 0 || Math.abs(value - parameters[index - 1]) > EPSILON);
+  for (let index = 0; index + 1 < unique.length; index += 1) {
+    if (unique[index + 1] - unique[index] <= EPSILON) continue;
+    const ratio = (unique[index] + unique[index + 1]) * 0.5;
+    const sample = [
+      start[0] + (end[0] - start[0]) * ratio,
+      start[1] + (end[1] - start[1]) * ratio,
+    ];
+    if (pointStrictlyInRegion2D(sample, region)) return true;
+  }
+  return false;
+}
+
+function regionsHavePositiveAreaOverlap2D(left, right) {
+  if (left.outer.some((point) => pointStrictlyInRegion2D(point, right))) return true;
+  if (right.outer.some((point) => pointStrictlyInRegion2D(point, left))) return true;
+  for (let index = 0; index < left.outer.length; index += 1) {
+    if (edgeEntersRegion2D(left.outer[index], left.outer[(index + 1) % left.outer.length], right)) return true;
+  }
+  for (let index = 0; index < right.outer.length; index += 1) {
+    if (edgeEntersRegion2D(right.outer[index], right.outer[(index + 1) % right.outer.length], left)) return true;
+  }
+  return false;
+}
+
 function validateDraftStructure(draft) {
   if (!draft || typeof draft !== 'object' || !Array.isArray(draft.floors)) {
     throw new Error('草稿缺少楼层数组');
@@ -224,14 +303,25 @@ function validateDraftStructure(draft) {
     const elevation = finiteNumber(floor?.elevation_m);
     if (elevation == null || Math.abs(elevation) > 1000) throw new Error('楼层 ' + floorId + ' 的楼面高度无效');
     if (!Array.isArray(floor.walkable)) throw new Error('楼层 ' + floorId + ' 的 walkable 必须是数组');
+    const normalizedRegions = [];
     for (const region of floor.walkable) {
       const regionId = String(region?.id ?? '').trim();
       if (!regionId) throw new Error('楼层 ' + floorId + ' 包含缺失区域 ID');
       if (regionIds.has(regionId)) throw new Error('区域 ID ' + regionId + ' 在草稿中重复');
       regionIds.add(regionId);
-      normalizeRing(region?.outer, '区域 ' + regionId + ' 外轮廓');
-      for (const [index, hole] of (Array.isArray(region?.holes) ? region.holes : []).entries()) {
-        normalizeRing(hole, '区域 ' + regionId + ' 孔洞 ' + (index + 1));
+      const normalized = normalizeAutoRegion(region, regionId, '区域 ' + regionId);
+      normalized.name = regionDisplayName(region);
+      normalizedRegions.push(normalized);
+    }
+    for (let leftIndex = 0; leftIndex < normalizedRegions.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < normalizedRegions.length; rightIndex += 1) {
+        const left = normalizedRegions[leftIndex];
+        const right = normalizedRegions[rightIndex];
+        if (!regionsHavePositiveAreaOverlap2D(left, right)) continue;
+        throw new Error(
+          '楼层 ' + floorDisplayName(floor) + ' / 区域 ' + left.name + ' 与区域 ' + right.name
+          + ' 存在正面积重叠；请调整边界、取消接受候选，或明确替换本层区域。',
+        );
       }
     }
   }
@@ -522,6 +612,278 @@ export function createAutoApplyPlan(draft, candidates) {
   };
 }
 
+
+export const AUTO_NAV_BOUNDARY_TOLERANCE_M = 0.01;
+
+function pointSegmentDistance2D(point, start, end) {
+  const dx = end[0] - start[0];
+  const dz = end[1] - start[1];
+  const lengthSquared = dx * dx + dz * dz;
+  const ratio = lengthSquared <= EPSILON
+    ? 0
+    : Math.max(0, Math.min(1, ((point[0] - start[0]) * dx + (point[1] - start[1]) * dz) / lengthSquared));
+  return Math.hypot(point[0] - start[0] - ratio * dx, point[1] - start[1] - ratio * dz);
+}
+
+function ringEdges2D(ring) {
+  return ring.map((point, index) => [point, ring[(index + 1) % ring.length]]);
+}
+
+function regionContainsPoint2D(region, point) {
+  return pointInRing2D(point, region.outer)
+    && !(region.holes || []).some((hole) => pointInRing2D(point, hole));
+}
+
+function segmentProjectionOverlapLength2D(a, b, c, d, tolerance) {
+  const abX = b[0] - a[0];
+  const abZ = b[1] - a[1];
+  const lengthSquared = abX * abX + abZ * abZ;
+  if (lengthSquared <= EPSILON) return 0;
+  const length = Math.sqrt(lengthSquared);
+  const limit = Math.max(0, Number(tolerance) || 0) + EPSILON;
+  const distanceC = Math.abs(abX * (c[1] - a[1]) - abZ * (c[0] - a[0])) / length;
+  const distanceD = Math.abs(abX * (d[1] - a[1]) - abZ * (d[0] - a[0])) / length;
+  if (distanceC > limit || distanceD > limit) return 0;
+  const tC = ((c[0] - a[0]) * abX + (c[1] - a[1]) * abZ) / lengthSquared;
+  const tD = ((d[0] - a[0]) * abX + (d[1] - a[1]) * abZ) / lengthSquared;
+  const start = Math.max(0, Math.min(tC, tD));
+  const end = Math.min(1, Math.max(tC, tD));
+  return Math.max(0, end - start) * length;
+}
+
+function segmentsShareNavigableBoundary2D(a, b, c, d, tolerance) {
+  const minimumOverlap = 1e-6;
+  const overlapOnFirst = segmentProjectionOverlapLength2D(a, b, c, d, tolerance);
+  if (overlapOnFirst <= minimumOverlap) return false;
+  const overlapOnSecond = segmentProjectionOverlapLength2D(c, d, a, b, tolerance);
+  return overlapOnSecond > minimumOverlap;
+}
+
+function regionsTouchForNavigation(left, right, tolerance) {
+  if (regionsHavePositiveAreaOverlap2D(left, right)) return true;
+  const limit = Math.max(0, Number(tolerance) || 0) + EPSILON;
+  const rightEdges = ringEdges2D(right.outer);
+  for (const [leftStart, leftEnd] of ringEdges2D(left.outer)) {
+    for (const [rightStart, rightEnd] of rightEdges) {
+      if (segmentsShareNavigableBoundary2D(leftStart, leftEnd, rightStart, rightEnd, limit)) return true;
+    }
+  }
+  return false;
+}
+
+function regionDisplayName(region) {
+  return String(region?.name || region?.label || region?.id || '未命名区域');
+}
+
+function floorDisplayName(floor) {
+  return String(floor?.name || floor?.id || '未知楼层');
+}
+
+function addUniqueWarning(warnings, message) {
+  if (message && !warnings.includes(message)) warnings.push(message);
+}
+
+/**
+ * Build the same room/connector graph used by nav3d.py without changing the
+ * draft. Shared borders, authored doors and stair endpoints are the only
+ * connections; the graph is rooted at exits and traversed in reverse.
+ */
+export function inspectAutoApplyNavigation(draft, plan = null, options = {}) {
+  const floors = Array.isArray(draft?.floors) ? draft.floors : [];
+  const floorById = new Map();
+  const regionById = new Map();
+  const regionFloor = new Map();
+  const warnings = [];
+  const errors = [];
+  const adjacency = new Map();
+  const connections = [];
+  const tolerance = Number.isFinite(Number(options?.boundaryToleranceM))
+    ? Math.max(0, Number(options.boundaryToleranceM))
+    : AUTO_NAV_BOUNDARY_TOLERANCE_M;
+
+  const plannedRegionIds = new Set();
+  const plannedCandidateByRegion = new Map();
+  for (const operation of Array.isArray(plan?.operations) ? plan.operations : []) {
+    for (const regionId of Array.isArray(operation?.regionIds) ? operation.regionIds : []) {
+      const id = String(regionId ?? '').trim();
+      if (!id) continue;
+      plannedRegionIds.add(id);
+      plannedCandidateByRegion.set(id, String(operation?.candidateId ?? operation?.targetId ?? ''));
+    }
+  }
+
+  const connect = (leftId, rightId, kind, label = '') => {
+    if (!leftId || !rightId || leftId === rightId || !regionById.has(leftId) || !regionById.has(rightId)) {
+      return 'invalid';
+    }
+    if (!adjacency.has(leftId)) adjacency.set(leftId, new Set());
+    if (!adjacency.has(rightId)) adjacency.set(rightId, new Set());
+    if (adjacency.get(leftId).has(rightId)) return 'duplicate';
+    adjacency.get(leftId).add(rightId);
+    adjacency.get(rightId).add(leftId);
+    connections.push({ from: leftId, to: rightId, kind, label });
+    return 'added';
+  };
+
+  for (const floor of floors) {
+    const floorId = floorIdOf(floor);
+    if (!floorId || floorById.has(floorId)) continue;
+    floorById.set(floorId, floor);
+    for (const region of Array.isArray(floor.walkable) ? floor.walkable : []) {
+      const id = String(region?.id ?? '').trim();
+      if (!id || regionById.has(id)) continue;
+      const normalized = {
+        id,
+        name: regionDisplayName(region),
+        outer: Array.isArray(region.outer) ? region.outer : [],
+        holes: Array.isArray(region.holes) ? region.holes : [],
+      };
+      regionById.set(id, normalized);
+      regionFloor.set(id, floorId);
+      adjacency.set(id, new Set());
+    }
+  }
+
+  const regionList = [...regionById.values()];
+  for (let leftIndex = 0; leftIndex < regionList.length; leftIndex += 1) {
+    const left = regionList[leftIndex];
+    const leftFloor = regionFloor.get(left.id);
+    for (let rightIndex = leftIndex + 1; rightIndex < regionList.length; rightIndex += 1) {
+      const right = regionList[rightIndex];
+      if (regionFloor.get(right.id) !== leftFloor) continue;
+      if (regionsTouchForNavigation(left, right, tolerance)) {
+        connect(left.id, right.id, 'shared-boundary', floorDisplayName(floorById.get(leftFloor)));
+      }
+    }
+  }
+
+  const containingRegions = (floorId, position) => {
+    const floor = floorById.get(floorId);
+    if (!floor || !Array.isArray(position) || position.length < 3) return [];
+    const point = [Number(position[0]), Number(position[2])];
+    if (!Number.isFinite(point[0]) || !Number.isFinite(point[1])) return [];
+    return (Array.isArray(floor.walkable) ? floor.walkable : [])
+      .filter((region) => regionContainsPoint2D(region, point))
+      .map((region) => String(region.id));
+  };
+
+  const doorConnectionCount = new Map();
+  for (const door of Array.isArray(draft?.doors) ? draft.doors : []) {
+    const floorId = String(door?.floor ?? '');
+    let fromId = String(door?.from_region ?? '');
+    let toId = String(door?.to_region ?? '');
+    if (!regionById.has(fromId) || !regionById.has(toId) || fromId === toId
+      || regionFloor.get(fromId) !== floorId || regionFloor.get(toId) !== floorId) {
+      const inferred = containingRegions(floorId, door?.position);
+      fromId = inferred[0] || '';
+      toId = inferred.find((id) => id !== fromId) || '';
+    }
+    if (fromId && toId && fromId !== toId) {
+      const result = connect(fromId, toId, 'door', String(door?.name || door?.id || '门'));
+      if (result === 'added') doorConnectionCount.set(floorId, (doorConnectionCount.get(floorId) || 0) + 1);
+    } else {
+      addUniqueWarning(warnings, '门 ' + String(door?.id || door?.name || '') + ' 无法解析到同层的两个不同可走区，请在通路步骤复核门两侧区域。');
+    }
+  }
+
+  for (const stair of Array.isArray(draft?.stairs) ? draft.stairs : []) {
+    const fromFloorId = String(stair?.from_floor ?? '');
+    const toFloorId = String(stair?.to_floor ?? '');
+    let fromId = String(stair?.from_region ?? '');
+    let toId = String(stair?.to_region ?? '');
+    if (!regionById.has(fromId) || regionFloor.get(fromId) !== fromFloorId) {
+      fromId = containingRegions(fromFloorId, stair?.bottom || stair?.path?.[0])[0] || '';
+    }
+    if (!regionById.has(toId) || regionFloor.get(toId) !== toFloorId) {
+      const path = Array.isArray(stair?.path) ? stair.path : [];
+      toId = containingRegions(toFloorId, stair?.top || path[path.length - 1])[0] || '';
+    }
+    if (connect(fromId, toId, 'stair', String(stair?.id || '楼梯')) === 'invalid') {
+      addUniqueWarning(warnings, '楼梯 ' + String(stair?.id || '') + ' 的上下端未能解析到对应楼层的可走区，跨层区域暂时不会被视为连通。');
+    }
+  }
+
+  const exitRegionIds = [];
+  for (const exit of Array.isArray(draft?.exits) ? draft.exits : []) {
+    const floorId = String(exit?.floor ?? '');
+    let regionId = String(exit?.region ?? '');
+    if (!regionById.has(regionId) || regionFloor.get(regionId) !== floorId) {
+      regionId = containingRegions(floorId, exit?.position)[0] || '';
+    }
+    if (regionId) exitRegionIds.push(regionId);
+    else errors.push('出口 ' + String(exit?.name || exit?.id || '') + ' 未落在所属楼层的可走区内，无法作为连通性根节点。');
+  }
+  if (!exitRegionIds.length) errors.push('场景没有可解析的出口，无法检查自动区域能否疏散。');
+
+  const reachable = new Set();
+  const stack = [...new Set(exitRegionIds)];
+  while (stack.length) {
+    const regionId = stack.pop();
+    if (!regionId || reachable.has(regionId)) continue;
+    reachable.add(regionId);
+    for (const next of adjacency.get(regionId) || []) {
+      if (!reachable.has(next)) stack.push(next);
+    }
+  }
+
+  const unreachableRegions = regionList
+    .filter((region) => !reachable.has(region.id))
+    .map((region) => {
+      const floorId = regionFloor.get(region.id);
+      return {
+        id: region.id,
+        name: region.name,
+        floorId,
+        floorName: floorDisplayName(floorById.get(floorId)),
+        source: plannedRegionIds.has(region.id) ? 'auto' : 'existing',
+        candidateId: plannedCandidateByRegion.get(region.id) || null,
+      };
+    });
+  for (const region of unreachableRegions) {
+    const prefix = region.source === 'auto' ? '自动候选区域' : '现有区域';
+    addUniqueWarning(
+      warnings,
+      prefix + ' ' + region.floorName + ' / ' + region.name
+      + ' 无法经共享边界、门或楼梯到达任何出口；请补充连接，或取消接受该区域。',
+    );
+  }
+
+  const unreachableRegionIds = unreachableRegions.map((region) => region.id);
+  const autoUnreachableRegionIds = unreachableRegions.filter((region) => region.source === 'auto').map((region) => region.id);
+  const existingUnreachableRegionIds = unreachableRegions.filter((region) => region.source === 'existing').map((region) => region.id);
+  const emptyFloorIds = listEmptyWalkableFloors(draft);
+  for (const floorId of emptyFloorIds) {
+    addUniqueWarning(
+      warnings,
+      '楼层 ' + floorDisplayName(floorById.get(floorId))
+      + ' 没有任何可走区，导航无法使用该楼层；请绘制至少一个可走区。',
+    );
+  }
+  const status = errors.length ? 'failed' : (warnings.length || unreachableRegionIds.length || emptyFloorIds.length) ? 'warning' : 'passed';
+  return {
+    ok: status === 'passed',
+    status,
+    regionCount: regionList.length,
+    exitRegionIds: [...new Set(exitRegionIds)],
+    reachableRegionIds: [...reachable],
+    unreachableRegionIds,
+    unreachableRegions,
+    autoUnreachableRegionIds,
+    existingUnreachableRegionIds,
+    emptyFloorIds,
+    connections,
+    connectionCounts: {
+      sharedBoundary: connections.filter((item) => item.kind === 'shared-boundary').length,
+      doors: connections.filter((item) => item.kind === 'door').length,
+      stairs: connections.filter((item) => item.kind === 'stair').length,
+    },
+    boundaryToleranceM: tolerance,
+    draftFingerprint: JSON.stringify(draft),
+    warnings,
+    errors,
+  };
+}
+
 export function applyAutoApplyPlan(draft, plan) {
   if (!draft || typeof draft !== 'object') throw new Error('缺少浏览器草稿');
   if (!plan || typeof plan !== 'object' || !Array.isArray(plan.operations) || !Array.isArray(plan.matches)) {
@@ -602,6 +964,15 @@ export function applyAutoApplyPlan(draft, plan) {
   if (changed && plan.operations.some((operation) => operation.kind === 'replace')) {
     applyAnnotationInvalidation(staged, '自动候选替换了部分楼层标注，请逐层复核门、出口、起始区与楼梯连接。');
   }
+  const navigationPreflight = inspectAutoApplyNavigation(staged, plan);
+  if (changed && navigationPreflight.status !== 'passed' && staged.navigation_review?.status === 'reviewed') {
+    staged.navigation_review = {
+      ...(staged.navigation_review || {}),
+      status: 'needs-review',
+      message: '自动候选应用后存在未连接区域或出口诊断，请补充门、楼梯并重新运行导航预览。',
+    };
+  }
+  navigationPreflight.draftFingerprint = JSON.stringify(staged);
   return {
     draft: staged,
     addedFloors,
@@ -613,6 +984,7 @@ export function applyAutoApplyPlan(draft, plan) {
     skippedCompetition: Number(plan.skippedCompetition) || 0,
     created: Number(plan.created) || addedFloors,
     emptyFloorIds: listEmptyWalkableFloors(staged),
+    navigationPreflight,
     changed,
   };
 }

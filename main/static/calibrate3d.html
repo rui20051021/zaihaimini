@@ -6,10 +6,17 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23315dff'%20stroke-width='1.8'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M10%2012h4'/%3E%3Cpath%20d='M10%208h4'/%3E%3Cpath%20d='M14%2021v-3a2%202%200%200%200-4%200v3'/%3E%3Cpath%20d='M6%2010H4a2%202%200%200%200-2%202v7a2%202%200%200%200%202%202h16a2%202%200%200%200%202-2V9a2%202%200%200%200-2-2h-2'/%3E%3Cpath%20d='M6%2021V5a2%202%200%200%201%202-2h8a2%202%200%200%201%202%202v16'/%3E%3C/svg%3E">
 <script type="importmap">{"imports":{"three":"/static/vendor/three.module.js"}}</script>
 <link rel="modulepreload" href="/static/vendor/three.module.js"><link rel="modulepreload" href="/static/vendor/GLTFLoader.js"><link rel="modulepreload" href="/static/vendor/meshopt_decoder.module.js">
-<link rel="stylesheet" href="/static/spatial-ui.css?v=20261103f">
-<link rel="modulepreload" href="/static/utils/spatial-ui.mjs?v=20261026a"><link rel="modulepreload" href="/static/utils/lucide-icons.mjs?v=20261026a">
-<style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}button,input,select{font:inherit}.load-progress{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);padding:15px 18px;width:min(310px,80vw);font-size:12px}.bar{height:3px;background:#e4eaf4;border-radius:10px;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;width:35%;background:#315dff;transition:width .3s}.indeterminate .bar i{animation:loading 1.2s ease-in-out infinite}@keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(390%)}}</style>
-</head>
+<link rel="stylesheet" href="/static/spatial-ui.css?v=20261104a">
+<link rel="modulepreload" href="/static/utils/spatial-ui.mjs?v=20261104a"><link rel="modulepreload" href="/static/utils/lucide-icons.mjs?v=20261104a">
+
+<style>*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden}button,input,select{font:inherit}.load-progress{position:absolute;left:50%;top:45%;transform:translate(-50%,-50%);padding:15px 18px;width:min(310px,80vw);font-size:12px}.bar{height:3px;background:#e4eaf4;border-radius:10px;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;width:35%;background:#315dff;transition:width .3s}.indeterminate .bar i{animation:loading 1.2s ease-in-out infinite}@keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(390%)}}.auto-navigation-preflight{--nav-tone:#315dff;--nav-soft:#edf2ff;display:grid;gap:10px;margin:0 0 12px;padding:11px;border:1px solid #dfe6f1;border-radius:13px;background:linear-gradient(145deg,#f8faff 0%,#fff 62%);box-shadow:inset 0 1px 0 #fff,0 4px 14px #315dff0a;color:#40556f}.auto-navigation-preflight[hidden]{display:none!important}.auto-navigation-preflight[data-status=passed]{--nav-tone:#28765b;--nav-soft:#eaf7f0;border-color:#cce7db}.auto-navigation-preflight[data-status=warning]{--nav-tone:#95651f;--nav-soft:#fff7e7;border-color:#ead8b1}.auto-navigation-preflight[data-status=failed]{--nav-tone:#a34238;--nav-soft:#fff0ed;border-color:#f0ccc6}
+.auto-navigation-head{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:center}.auto-navigation-mark{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:var(--nav-soft);color:var(--nav-tone)}.auto-navigation-mark .lucide{width:15px;height:15px}.auto-navigation-title{min-width:0}.auto-navigation-title strong{display:block;color:#31465f;font-size:10.5px;line-height:1.4;font-weight:700}.auto-navigation-title small{display:block;margin-top:1px;color:#78889c;font:8px/1.45 "Cascadia Code",Consolas,monospace;letter-spacing:.035em}.auto-navigation-status{display:inline-flex;align-items:center;gap:4px;padding:4px 6px;border:1px solid var(--nav-tone);border-radius:999px;background:var(--nav-soft);color:var(--nav-tone);font-size:8px;font-weight:700;white-space:nowrap}
+.auto-navigation-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}.auto-navigation-metric{min-width:0;padding:6px 7px;border:1px solid #e7ecf4;border-radius:8px;background:#ffffffc7}.auto-navigation-metric span{display:block;color:#7c8b9e;font-size:7.5px;line-height:1.35}.auto-navigation-metric b{display:block;margin-top:2px;color:#344b64;font:12px/1.2 "Cascadia Code",Consolas,monospace;font-variant-numeric:tabular-nums}.auto-navigation-metric.is-alert{background:var(--nav-soft);border-color:#eed8d2}.auto-navigation-metric.is-alert b{color:#a34238}.auto-navigation-metric.is-wide{grid-column:span 2}
+.auto-navigation-sources{display:flex;align-items:center;gap:5px;flex-wrap:wrap;color:#708198;font-size:8px}.auto-navigation-sources span{margin-right:auto;color:#8795a7;font-size:7.5px;letter-spacing:.04em}.auto-navigation-sources b{padding:3px 6px;border-radius:999px;background:#f2f5f9;color:#50677f;font:7.5px/1.2 "Cascadia Code",Consolas,monospace;font-weight:600}
+.auto-navigation-body{display:grid;gap:7px}.auto-navigation-group{display:grid;gap:4px}.auto-navigation-group-title{display:flex;justify-content:space-between;gap:8px;align-items:baseline;color:#536981;font-size:8.5px;font-weight:650;letter-spacing:.03em}.auto-navigation-group-title strong{display:inline-flex;align-items:center;gap:4px}.auto-navigation-group-title .lucide{width:11px;height:11px}.auto-navigation-group-title span{color:#8795a7;font-size:7.5px;font-weight:400}.auto-navigation-list{display:grid;gap:4px}.auto-navigation-item{display:grid;grid-template-columns:20px minmax(0,1fr);gap:7px;align-items:center;width:100%;min-height:44px;padding:8px 9px;border:1px solid #e8edf4;border-radius:9px;background:#fff;color:#46617b;text-align:left;box-shadow:none;cursor:pointer;transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease}.auto-navigation-item:hover{border-color:#a9c0dc;background:#f6faff;box-shadow:0 0 0 2px #315dff12;transform:none}.auto-navigation-item:focus-visible{outline:2px solid #315dff;outline-offset:2px;border-color:#315dff;background:#f4f8ff}.auto-navigation-item:active{transform:translateY(1px)}.auto-navigation-item .lucide{width:15px;height:15px}.auto-navigation-item>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:1.35;font-weight:650}.auto-navigation-item>span{display:grid;gap:1px;min-width:0}.auto-navigation-item strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;line-height:1.35;font-weight:650}.auto-navigation-item small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#8291a4;font:7.5px/1.35 "Cascadia Code",Consolas,monospace}.auto-navigation-item.is-empty-floor{border-color:#e5dfcc;background:#fffdf7;color:#806a38}.auto-navigation-item.is-unreachable{border-color:#efd4cf;background:#fffafa;color:#8e453e}.auto-navigation-item.is-unreachable:hover{border-color:#e4aca4;background:#fff4f1}
+.auto-navigation-empty{display:flex;align-items:center;gap:6px;padding:7px;border:1px dashed #cfe2d8;border-radius:8px;background:#f6fbf8;color:#4f7c68;font-size:9px;line-height:1.55}.auto-navigation-empty .lucide{width:13px;height:13px;flex:0 0 auto}.auto-navigation-notes{display:grid;gap:3px;padding:6px 7px;border-radius:8px;background:#fafbfd;color:#667990;font-size:8.5px;line-height:1.55}.auto-navigation-notes p{margin:0;overflow-wrap:anywhere}.auto-navigation-notes p.is-error{color:#9d4037}.auto-navigation-hint{margin:0;padding:0 2px;color:#718198;font-size:7.5px;line-height:1.5;text-align:right}.auto-collision-note{margin:5px 0 0;padding:5px 7px;border-left:2px solid #c9d8eb;background:#f7faff;color:#6b7f96;font-size:8px;line-height:1.55}.auto-region-details{display:grid;gap:4px}
+@media(max-width:760px){.auto-navigation-head{grid-template-columns:28px minmax(0,1fr)}.auto-navigation-status{grid-column:2;justify-self:start}.auto-navigation-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.auto-navigation-list{max-height:180px;overflow-y:auto;overscroll-behavior:contain;padding-right:2px}.auto-navigation-item{min-height:48px}}
+</style></head>
 <body class="silver-ui calibration-ui">
 <div class="layout"><main class="stage">
  <canvas id="view" aria-label="三维建筑标注画布"></canvas>
@@ -99,6 +106,7 @@
   <div id="releaseGate" class="release-gate" aria-live="polite"></div>
   <div class="check-heading"><strong>提交前检查</strong><span id="checkSummary">正在检查</span></div>
   <div id="calibrationChecks" class="calibration-checks" aria-live="polite"></div>
+  <div id="autoNavigationPreflight" class="auto-navigation-preflight" hidden aria-live="polite"></div>
   <div id="previewList" class="preview-list" hidden></div>
   <div class="notice">导航预览通过后，仍需实际检查门洞、墙边、楼梯与出口。真实尺度和导航复核共同决定正式实验是否可用。</div>
   <div class="row actions"><button id="previewSmoke">烟雾预览</button><button id="activateBtn">激活场景</button></div>
@@ -109,15 +117,15 @@
 <div class="save-dock"><button id="viewHomeBtn" type="button" aria-label="全局视图" data-lucide="maximize">全局视图</button><button id="undoBtn" type="button" data-tooltip-title="撤销上一步" aria-label="撤销上一步" data-lucide="undo-2" aria-disabled="true" disabled>撤销</button><button id="previewNav" aria-label="导航预览" data-lucide="route">导航预览</button><button id="saveBtn" class="primary" type="button" data-lucide="save">保存校准</button></div>
 <script type="module">
 import * as THREE from 'three';
-import {initSpatialUI,icon} from '/static/utils/spatial-ui.mjs?v=20261103a';
+import {initSpatialUI,icon} from '/static/utils/spatial-ui.mjs?v=20261104a';
 import {RenderBudget} from '/static/utils/render-performance.mjs?v=20261022';
 import {mergeGeometries} from '/static/utils/BufferGeometryUtils.js?v=20261026a';
 import {disposeModel} from '/static/utils/participant-motion.mjs?v=20261016';
-import {collectWorldGeometry, analyzeInWorker} from '/static/utils/auto-calibrate.mjs?v=20261103c';
-import {createAutoApplyPlan,applyAutoApplyPlan,syncFloorDependentHeights,listEmptyWalkableFloors,AUTO_MATCH_TOLERANCE_M} from '/static/utils/auto-apply-plan.mjs?v=20261103c';
+import {collectWorldGeometry, analyzeInWorker} from '/static/utils/auto-calibrate.mjs?v=20261104a';
+import {createAutoApplyPlan,applyAutoApplyPlan,syncFloorDependentHeights,listEmptyWalkableFloors,AUTO_MATCH_TOLERANCE_M} from '/static/utils/auto-apply-plan.mjs?v=20261104a';
 initSpatialUI('calibration'); import {GLTFLoader} from '/static/vendor/GLTFLoader.js'; import {MeshoptDecoder} from '/static/vendor/meshopt_decoder.module.js';
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
-const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, drawingFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight', autoAnalysis=null, autoAnalysisGeneration=0, autoCandidates=null, autoExclusions=null, autoDiagnostics=null, cutawayFocusY=null, focusedAutoExclusionKey=null;
+const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, drawingFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight', autoAnalysis=null, autoAnalysisGeneration=0, autoCandidates=null, autoExclusions=null, autoDiagnostics=null, navigationPreflightState=null, cutawayFocusY=null, focusedAutoExclusionKey=null;
 const coarsePointer=matchMedia('(pointer:coarse)').matches, lowMemory=navigator.deviceMemory&&navigator.deviceMemory<=4;const renderer=new THREE.WebGLRenderer({canvas,antialias:!coarsePointer&&!lowMemory});renderer.setPixelRatio(Math.min(coarsePointer?1:1.25,devicePixelRatio));renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.localClippingEnabled=true;const world=new THREE.Scene();world.background=new THREE.Color(0xeaf0f7);world.add(new THREE.HemisphereLight(0xf4f8ff,0x778aa2,2));const sun=new THREE.DirectionalLight(0xffffff,2.1);sun.position.set(20,35,12);world.add(sun);const camera=new THREE.PerspectiveCamera(42,1,.02,2000);let orbit={theta:.7,phi:1.05,dist:30,target:new THREE.Vector3(8,2,3)};let overlays=new THREE.Group();world.add(overlays);let drag=false,last=[0,0],dragAction='rotate',touchGesture=null,sceneBounds=null,modelGeneration=0;const activePointers=new Map();const renderBudget=new RenderBudget({maxPixelRatio:Math.min(coarsePointer?1:1.25,devicePixelRatio),minPixelRatio:coarsePointer?.65:.75});let renderAt=0,frameAt=0;const visualOrbit={theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.clone()};const orbitPosition=new THREE.Vector3();
 let touchTap=null,mouseTap=null;
 function resize(){renderer.setSize(canvas.clientWidth,canvas.clientHeight,false);camera.aspect=canvas.clientWidth/Math.max(1,canvas.clientHeight);camera.updateProjectionMatrix()}addEventListener('resize',resize);resize();
@@ -256,7 +264,7 @@ function renderAutoDiagnostics(){
  if(warnings.length)parts.push(`<div class="auto-diagnostics-block"><strong>需人工留意</strong>${autoWarningList(warnings,'auto-diagnostics-list')}</div>`);
  const thresholdRows=[];
  if(Number.isFinite(Number(thresholds.min_walkable_width_m)))thresholdRows.push(`<span>最小通行宽 ${Number(thresholds.min_walkable_width_m).toFixed(2)} m</span>`);
- if(Number.isFinite(Number(thresholds.min_person_diameter_m)))thresholdRows.push(`<span>人员直径 ${Number(thresholds.min_person_diameter_m).toFixed(2)} m</span>`);
+ if(Number.isFinite(Number(thresholds.min_person_diameter_m)))thresholdRows.push(`<span>碰撞代理直径 ${Number(thresholds.min_person_diameter_m).toFixed(2)} m</span>`);
  if(Number.isFinite(Number(thresholds.min_above_coverage)))thresholdRows.push(`<span>上方结构覆盖门槛 ${autoCoverageLabel(thresholds.min_above_coverage)}</span>`);
  if(Number.isFinite(Number(thresholds.min_story_clearance_m)))thresholdRows.push(`<span>最小层高 ${Number(thresholds.min_story_clearance_m).toFixed(2)} m</span>`);
  if(thresholdRows.length)parts.push(`<div class="auto-thresholds">${thresholdRows.join('')}</div>`);
@@ -275,10 +283,17 @@ function autoFloorDiagnostics(floor){
 function autoRegionDiagnostics(region){
  const holeCount=Number(region.hole_count),flags=[];
  if(region.min_width_is_estimate)flags.push('<span>宽度为估计值</span>');
- if(region.physically_blocked)flags.push('<span>低于人员直径</span>');else if(region.near_width_limit)flags.push('<span>低于推荐宽度</span>');
+ if(region.physically_blocked)flags.push('<span>低于碰撞代理直径</span>');else if(region.near_width_limit)flags.push('<span>低于推荐宽度</span>');
  if(region.width_cut_warning)flags.push('<span>窄口切分警告</span>');
+ if(region.split_applied)flags.push('<span>已按窄口拆分</span>');
  const widest=Number.isFinite(holeCount)?Math.max(0,Math.round(holeCount)):0;
- return `<div class="auto-region-details"><div class="auto-region-flags"><span>孔洞 <b>${widest}</b></span><span>最小宽度 <b>${autoWidthLabel(region.min_width_m)}${region.min_width_is_estimate?'（估计）':''}</b></span>${flags.join('')}</div>${autoWarningList(region.warnings)}</div>`;
+ const holeArea=Number(region.hole_area_m2),splitCount=Number(region.min_width_split_components),cutArea=Number(region.width_cut_area_m2);
+ const metrics=[`<span>孔洞 <b>${widest}</b></span>`];
+ if(Number.isFinite(holeArea)&&holeArea>0)metrics.push(`<span>孔洞面积 <b>${holeArea.toFixed(1)} m²</b></span>`);
+ metrics.push(`<span>最小宽度 <b>${autoWidthLabel(region.min_width_m)}${region.min_width_is_estimate?'（估计）':''}</b></span>`);
+ if(Number.isFinite(splitCount)&&splitCount>0)metrics.push(`<span>窄口分量 <b>${Math.round(splitCount)}</b></span>`);
+ if(Number.isFinite(cutArea)&&cutArea>0)metrics.push(`<span>切分面积 <b>${cutArea.toFixed(2)} m²</b></span>`);
+ return `<div class="auto-region-details"><div class="auto-region-flags">${metrics.join('')}${flags.join('')}</div><p class="auto-collision-note">碰撞代理用于自动排除明显不可通过的窄口，不等于真实肩宽、轮椅尺寸或多人拥堵能力；正式实验前仍须现场复核。</p>${autoWarningList(region.warnings)}</div>`;
 }
 function renderAutoExclusions(){
  const container=$('#autoExclusionList');if(!container)return;
@@ -710,7 +725,7 @@ function draftAudit(){
   if(unrelated.length){out.doors.push(`${label} 的中心同时落在无关区域 ${unrelated.join('、')}，请调整区域选择或门位置`);continue}
   const expected=Number(floor.elevation_m),actual=Number(pos[1]);
   if(!Number.isFinite(expected)||!Number.isFinite(actual)||Math.abs(actual-expected)>.02)out.doors.push(`${label} 高度应为楼面标高 ${Number.isFinite(expected)?expected.toFixed(2):'—'} m，实际为 ${Number.isFinite(actual)?actual.toFixed(2):'—'} m`);
-  const clear=Number(door.width_m);if(!Number.isFinite(clear)||clear<.4)out.doorClearance.push(`${label} 净宽 ${Number.isFinite(clear)?clear.toFixed(2):'—'} m，小于人物直径 0.30 m 加 0.10 m 通行余量；请按门洞实际净宽修正。`);
+  const clear=Number(door.width_m);if(!Number.isFinite(clear)||clear<.4)out.doorClearance.push(`${label} 净宽 ${Number.isFinite(clear)?clear.toFixed(2):'—'} m，小于碰撞代理直径 0.30 m 加 0.10 m 通行余量；请按门洞实际净宽修正。`);
  }
  for(const stair of stairs){
   const a=floors.find(f=>f.id===stair.from_floor),b=floors.find(f=>f.id===stair.to_floor),label=stair.id||'楼梯';
@@ -734,7 +749,7 @@ const auditDefinitions=[
  ['model','模型已配置','building-2'],['scale','真实尺度已验证','ruler'],
  ['floorCoverage','所有楼层均已绘制可走区','layers'],['regionOverlap','可走区之间不重叠面积，只允许共享边界','layers'],['geometry','可走区路径闭合，且无自交或过小区域','scan-line'],
  ['obstacles','障碍完整位于所属可走区内，且互不重叠','circle-stop'],['spawn','起始区完整位于同一块可走区内','map-pin'],
- ['exits','已配置出口，且位于可走区内','log-out'],['doors','门的中心位于其连接的两侧区域之一','door-open'],['doorClearance','门洞净宽满足人物通行余量','door-open'],
+ ['exits','已配置出口，且位于可走区内','log-out'],['doors','门的中心位于其连接的两侧区域之一','door-open'],['doorClearance','门洞净宽满足碰撞代理通行余量','door-open'],
  ['stairs','楼梯上下端落在对应楼层可走区内','route']
 ];
 function listDraftIssues(){
@@ -742,7 +757,132 @@ function listDraftIssues(){
  const audit=draftAudit();return auditDefinitions.flatMap(([key])=>audit[key]);
 }
 function firstDraftIssue(){return listDraftIssues()[0]||''}
-function refreshValidationChecklist(){
+function navigationPreflightStatusLabel(status){
+ return ({passed:'已通过',warning:'有提示',failed:'未通过'})[status]||'未知状态';
+}
+function navigationPreflightMessageLines(preflight){
+ return {
+  errors:(Array.isArray(preflight?.errors)?preflight.errors:[]).filter(Boolean).map(String),
+  warnings:(Array.isArray(preflight?.warnings)?preflight.warnings:[]).filter(Boolean).map(String)
+ };
+}
+function navigationPreflightFingerprint(){return draft?snapshotDraft():''}
+function navigationPreflightDerivedStatus(preflight){
+ const errors=(Array.isArray(preflight?.errors)?preflight.errors:[]).filter(Boolean);
+ const warnings=(Array.isArray(preflight?.warnings)?preflight.warnings:[]).filter(Boolean);
+ const unreachable=Array.isArray(preflight?.unreachableRegions)?preflight.unreachableRegions:[];
+ const emptyFloors=Array.isArray(preflight?.emptyFloorIds)?preflight.emptyFloorIds:[];
+ return errors.length?'failed':(warnings.length||unreachable.length||emptyFloors.length)?'warning':'passed';
+}
+function preflightHasStaleSource(preflight){
+ if(!preflight||!draft)return true;
+ if(!preflight.draftFingerprint)return true;
+ return preflight.draftFingerprint!==navigationPreflightFingerprint();
+}
+function adoptNavigationPreflightForDraft(preflight,sourceSnapshot=snapshotDraft()){
+ if(!preflight||typeof preflight!=='object'||preflight.draftFingerprint!==sourceSnapshot)return null;
+ const adopted=clone(preflight);
+ if(Array.isArray(adopted.unreachableRegions)&&adopted.unreachableRegions.length&&!Array.isArray(adopted.unreachableRegionIds)){
+  adopted.unreachableRegionIds=adopted.unreachableRegions.map(region=>String(region?.id??'')).filter(Boolean);
+ }
+ adopted.emptyFloorIds=listEmptyWalkableFloors(draft);
+ if(adopted.emptyFloorIds.length){
+  const warnings=Array.isArray(adopted.warnings)?adopted.warnings.slice():[];
+  for(const floorId of adopted.emptyFloorIds){
+   const floor=draft.floors?.find(item=>item.id===floorId),message=`楼层 ${floor?.name||floorId} 没有任何可走区，导航无法使用该楼层；请绘制至少一个可走区。`;
+   if(!warnings.includes(message))warnings.push(message);
+  }
+  adopted.warnings=warnings;
+ }
+ adopted.status=navigationPreflightDerivedStatus(adopted);
+ adopted.ok=adopted.status==='passed';
+ return adopted;
+}
+function clearAutoNavigationPreflight(){
+ navigationPreflightState=null;
+ const card=$('#autoNavigationPreflight');
+ if(card){card.hidden=true;card.replaceChildren();delete card.dataset.status;}
+}
+function locateNavigationPreflightFloor(floorRecord){
+ const floorId=String(floorRecord?.id||floorRecord||''),floor=draft?.floors?.find(item=>item.id===floorId);
+ if(!floor){setStatus('该楼层已不在当前草稿中','warn');return}
+ activeFloorId=floor.id;const select=$('#floorSelect');if(select){select.value=activeFloorId;select.dispatchEvent(new Event('change'));}
+ showStep('floor');focusFloor({topDown:false,close:true});
+ setStatus(`已定位${floor.name||floor.id} · 该层还没有可走区`,'warn');
+}
+function locateNavigationPreflightRegion(regionRecord){
+ const regionId=String(regionRecord?.id||regionRecord||''),preferredFloorId=String(regionRecord?.floorId||'');
+ const floor=draft?.floors?.find(item=>item.id===preferredFloorId&&(item.walkable||[]).some(region=>region.id===regionId))
+  ||draft?.floors?.find(item=>(item.walkable||[]).some(region=>region.id===regionId));
+ const ref=(floor?.walkable||[]).find(region=>region.id===regionId);
+ if(!floor||!ref){setStatus('该预检区域已不在当前草稿中','warn');return}
+ activeFloorId=floor.id;const select=$('#floorSelect');if(select){select.value=activeFloorId;select.dispatchEvent(new Event('change'));}
+ const regionName=regionRecord?.name||ref.name||ref.id;
+ selectObject({type:'region',id:regionId,label:`${floor.name||floor.id} · ${regionName}`,floor:floor.id,ref,anchor:ref.outer?.[0]});
+ focusSelected();
+ setStatus(`已定位不可达区域 ${regionName}；请检查共享边界、门、楼梯与出口`,'warn');
+}
+function preflightMetric(label,value,{alert=false,wide=false}={}){
+ return `<div class="auto-navigation-metric ${alert?'is-alert':''} ${wide?'is-wide':''}"><span>${label}</span><b>${Number.isFinite(Number(value))?Number(value):'—'}</b></div>`;
+}
+function refreshNavigationPreflightCard(){
+ const card=$('#autoNavigationPreflight');if(!card)return;
+ const preflightStale=preflightHasStaleSource(navigationPreflightState);
+ if(preflightStale)clearAutoNavigationPreflight();
+ const preflight=navigationPreflightState;
+ card.hidden=!preflight;if(!preflight){card.replaceChildren();delete card.dataset.status;return}
+ const status=navigationPreflightDerivedStatus(preflight);
+ const statusLabel=navigationPreflightStatusLabel(status),counts=preflight.connectionCounts||{};
+ const unreachable=Array.isArray(preflight.unreachableRegions)?preflight.unreachableRegions:[];
+ const emptyFloorIds=Array.isArray(preflight.emptyFloorIds)?preflight.emptyFloorIds:[];
+ const autoUnreachable=unreachable.filter(region=>region.source==='auto').length,existingUnreachable=unreachable.length-autoUnreachable;
+ const statusIcon={passed:'circle-check',warning:'circle-alert',failed:'circle-x'}[status];
+ card.dataset.status=status;
+ card.innerHTML=`<div class="auto-navigation-head"><span class="auto-navigation-mark">${icon(statusIcon)}</span><div class="auto-navigation-title"><strong>导航连通预检</strong><small>当前草稿 · 共享边界 / 门 / 楼梯图</small></div><span class="auto-navigation-status">${statusLabel}</span></div>
+ <div class="auto-navigation-metrics">${preflightMetric('可走区',preflight.regionCount)}${preflightMetric('共享边界',counts.sharedBoundary)}${preflightMetric('门连接',counts.doors)}${preflightMetric('楼梯连接',counts.stairs)}${preflightMetric('不可达',unreachable.length,{alert:unreachable.length>0})}${preflightMetric('空楼层',emptyFloorIds.length,{alert:emptyFloorIds.length>0})}</div>
+ <div class="auto-navigation-sources"><span>来源审计</span><b>${autoUnreachable} 自动</b><b>${existingUnreachable} 现有</b></div>`;
+ const body=document.createElement('div');body.className='auto-navigation-body';
+ if(emptyFloorIds.length){
+  const group=document.createElement('div');group.className='auto-navigation-group';
+  const heading=document.createElement('div');heading.className='auto-navigation-group-title';heading.innerHTML=`<strong>${icon('layers')}空楼层</strong><span>点击切层定位</span>`;
+  const list=document.createElement('div');list.className='auto-navigation-list';
+  for(const floorId of emptyFloorIds){
+   const floor=draft?.floors?.find(item=>item.id===floorId),button=document.createElement('button'),name=document.createElement('strong'),meta=document.createElement('small');
+   button.type='button';button.className='auto-navigation-item is-empty-floor';
+   name.textContent=floor?.name||floorId;meta.textContent=`${Number.isFinite(Number(floor?.elevation_m))?Number(floor.elevation_m).toFixed(2)+' m':'标高未知'} · 尚无可用可走区`;
+   button.innerHTML=icon('scan-line');button.append(name,meta);
+   button.dataset.tooltipTitle=`${name.textContent} 为空楼层`;button.dataset.tooltipDescription='该层没有可走区，导航无法使用。点击切换楼层后使用可走区工具绘制边界。';button.dataset.tooltipState='点击切层定位';
+   button.onclick=()=>locateNavigationPreflightFloor({id:floorId});list.append(button);
+  }
+  group.append(heading,list);body.append(group);
+ }
+ if(unreachable.length){
+  const group=document.createElement('div');group.className='auto-navigation-group';
+  const heading=document.createElement('div');heading.className='auto-navigation-group-title';heading.innerHTML=`<strong>${icon('circle-x')}不可达区域</strong><span>点击定位复核</span>`;
+  const list=document.createElement('div');list.className='auto-navigation-list';
+  for(const region of unreachable){
+   const button=document.createElement('button'),detail=document.createElement('span'),name=document.createElement('strong'),meta=document.createElement('small');
+   button.type='button';button.className='auto-navigation-item is-unreachable';button.innerHTML=icon('crosshair');detail.append(name,meta);button.append(detail);
+   name.textContent=region.name||region.id;meta.textContent=`${region.floorName||region.floorId||'未知楼层'} · ${region.source==='auto'?'自动候选':'现有标注'}`;
+   button.setAttribute('aria-label',`定位不可达区域：${meta.textContent} · ${name.textContent}`);
+   button.dataset.tooltipKey='navigationResult';button.dataset.tooltipTitle=`${meta.textContent} · ${name.textContent}`;button.dataset.tooltipIcon='crosshair';button.dataset.tooltipDescription='该区域无法经共享边界、门或楼梯到达出口。点击会切换楼层、选中并聚焦该区域，便于补充连接。';button.dataset.tooltipState='不可达 · 点击定位';
+   button.onclick=()=>locateNavigationPreflightRegion(region);list.append(button);
+  }
+  group.append(heading,list);body.append(group);
+ }
+ if(!emptyFloorIds.length&&!unreachable.length){
+  const empty=document.createElement('div');empty.className='auto-navigation-empty';empty.innerHTML=`${icon(status==='passed'?'shield-check':'circle-check')}<span>${status==='passed'?'所有已绘制区域都能沿共享边界、门或楼梯到达出口。':'当前快照没有空楼层或不可达区域。'}</span>`;body.append(empty);
+ }
+ const {errors,warnings}=navigationPreflightMessageLines(preflight);
+ if(errors.length||warnings.length){
+  const notes=document.createElement('div');notes.className='auto-navigation-notes';
+  for(const [text,kind] of [...errors.map(text=>[text,'is-error']),...warnings.map(text=>[text,''])]){const line=document.createElement('p');line.className=kind;line.textContent=text;notes.append(line);}
+  body.append(notes);
+ }
+ const note=document.createElement('p');note.className='auto-navigation-hint';note.textContent=unreachable.length||emptyFloorIds.length?'补充可走区、门或楼梯后，再运行导航预览；当前预检会随草稿修改清除。':'预检已通过。请继续运行导航预览并完成人工复核。';body.append(note);
+ card.append(body);
+}function refreshValidationChecklist(){
+ refreshNavigationPreflightCard();
  const container=$('#calibrationChecks');if(!container)return;
  if(!draft){container.innerHTML=`<div class="check-row is-wait"><span class="check-mark" data-lucide="circle-help"></span><div><strong>场景尚未读取</strong><small>等待校准草稿加载完成</small></div></div>`;return}
  const audit=draftAudit(),rows=[];
@@ -1034,7 +1174,7 @@ $('#updateFloor').onclick=updateActiveFloor;
 $('#floorName').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#floorElevation').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();updateActiveFloor()}});
 $('#removeFloor').onclick=()=>{if(!activeFloorId||!draft)return;if(draft.floors.length<=1){setStatus('场景至少需要保留一层','warn');return}const f=activeFloor();pushUndo(`删除楼层 ${f?.name||activeFloorId}`);draft.floors=draft.floors.filter(x=>x.id!==activeFloorId);draft.stairs=(draft.stairs||[]).filter(s=>s.from_floor!==activeFloorId&&s.to_floor!==activeFloorId);draft.doors=(draft.doors||[]).filter(d=>d.floor!==activeFloorId);draft.exits=(draft.exits||[]).filter(e=>e.floor!==activeFloorId);activeFloorId=draft.floors[0]?.id||null;selected=null;rebuildFloorSelect();redraw();markDirty();setStatus('楼层已删除，可撤销','ok')};
-$('#floorSelect').onchange=e=>{const nextId=e.target.value;if(drawingFloorId&&points.length&&nextId!==drawingFloorId){e.target.value=drawingFloorId;const locked=drawingFloor();setStatus(`当前正在${locked?.name||'当前楼层'}绘制，已锁定本轮轮廓归属。请先完成或撤销当前轮廓，再切换楼层`,'warn');return}clearAutoFocus({update:false});activeFloorId=nextId;if(['floor','hole','spawn'].includes(mode))drawingFloorId=activeFloorId;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshFloorReference(f,Number(f?.elevation_m));refreshDoorRegions();paintFloorDock();refreshValidationChecklist();deselect();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
+$('#floorSelect').onchange=e=>{const nextId=e.target.value;if(drawingFloorId&&points.length&&nextId!==drawingFloorId){e.target.value=drawingFloorId;const locked=drawingFloor();setStatus(`当前正在${locked?.name||'当前楼层'}绘制，已锁定本轮轮廓归属。请先完成或撤销当前轮廓，再切换楼层`,'warn');return}clearAutoFocus({update:false});activeFloorId=nextId;if(['floor','hole','spawn'].includes(mode))drawingFloorId=activeFloorId;const f=activeFloor();if(f){$('#floorName').value=f.name;$('#floorElevation').value=f.elevation_m}refreshFloorReference(f,Number(f?.elevation_m));refreshDoorRegions();paintFloorDock();deselect();refreshValidationChecklist();if(mode!=='orbit')focusFloor({topDown:['floor','hole','spawn'].includes(mode)});else focusFloor({close:true});};
 $('#viewHomeBtn').onclick=resetView;$('#orbitBtn').onclick=()=>chooseMode('orbit');$('#editBtn').onclick=()=>chooseMode('edit');$('#measureBtn').onclick=()=>chooseMode('measure');$('#floorBtn').onclick=()=>chooseMode('floor');$('#holeBtn').onclick=()=>chooseMode('hole');$('#doorBtn').onclick=()=>chooseMode('door');$('#stairBtn').onclick=()=>chooseMode('stair');$('#exitBtn').onclick=()=>chooseMode('exit');$('#spawnBtn').onclick=()=>chooseMode('spawn');$('#finishBtn').onclick=closeRing;$('#backBtn').onclick=()=>location.href='/';$('#reloadBtn').onclick=()=>loadModel();$('#tokenSave').onclick=()=>{token=$('#tokenInput').value.trim();localStorage.setItem('maze_admin_token',token);setStatus('管理令牌已保存','ok');loadDraft()};
 $('#useCalibrationModel').onclick=()=>useCalibrationModel();
 $('#autoAnalyzeBtn').onclick=startAutoAnalysis;
@@ -1044,7 +1184,7 @@ $('#clearAutoCandidates').onclick=clearAutoCandidates;
 $('#uploadBtn').onclick=async()=>{const file=$('#fileInput').files[0];if(!file){setStatus('请选择 .glb 文件','err');return}try{setStatus('正在上传 GLB…');const r=await fetch(`/api/scenes/upload?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{...authHeaders()},body:file});const d=await r.json();if(!r.ok)throw new Error(d.detail||`上传失败 ${r.status}`);sceneId=d.id;history.replaceState(null,'',`/calibrate?scene=${sceneId}`);await loadDraft();setStatus('上传成功，已创建临时比例草稿','ok')}catch(e){setStatus(e.message,'err')}};
 $('#saveBtn').onclick=async()=>{if(!draft)return;const issue=firstDraftIssue();if(issue){setStatus(`暂不能保存：${issue}`,'err');$('#validation').textContent=`本地检查未通过：${issue}`;return}try{$('#saveBtn').disabled=true;const result=await api(`/api/scenes/${sceneId}/calibration`,{method:'PUT',body:JSON.stringify(draft)});savedSnapshot=snapshotDraft();serverBaseline=clone(draft);dirty=false;clearTimeout(autosaveTimer);clearStoredDraft();setDraftState('saved','已同步到服务器');refreshStepProgress();setStatus(`校准已保存：${result.floors??draft.floors.length} 层、${result.regions??objectCounts().regions} 个可走区`,'ok');$('#validation').textContent=draft.navigation_review?.status==='reviewed'?'服务端校验通过，导航已复核。若比例或通路未变化，可在观察台激活。':'服务端校验通过。仍需导航预览与人工复核，才能用于正式采集。'}catch(e){$('#validation').textContent=e.message;setStatus(e.message,'err')}finally{refreshActionState()}};
 $('#activateBtn').onclick=async()=>{if(!$('#activateBtn').disabled){if(!window.confirm('切换观察主机到这份已保存的校准场景？正在进行的场次需先结束或重置。'))return}try{const r=await api(`/api/scenes/${sceneId}/activate`,{method:'POST',body:'{}'});setStatus('场景已激活','ok');$('#validation').textContent=`已激活：${r.active||sceneId}`;refreshActionState()}catch(e){setStatus(e.message,'err');$('#validation').textContent=e.message}};
-$('#previewNav').onclick=async()=>{if(!draft?.floors?.length){setStatus('请先创建楼层','err');return}try{showStep('validate');setStatus('正在计算导航预览…');const r=await api(`/api/scenes/${sceneId}/preview/navigation`,{method:'POST',body:JSON.stringify(draft)});navPreview=r;smokePreview=null;mode='orbit';setModes();deselect();redraw();renderPreviewList(r);refreshStepProgress();const missing=(r.paths||[]).filter(p=>!p.reachable);setStatus(`导航预览：${r.reachable}/${r.total} 个可走区可到达出口`+(missing.length?`；不可达 ${missing.length} 个区域，可点击列表定位`:''),missing.length?'err':'ok');$('#validation').textContent=missing.length?`仍有 ${missing.length} 个区域到不了出口，请在下方列表点击定位。`:'所有可走区均可通过区域、门或楼梯到达出口。';}catch(e){setStatus(e.message,'err');$('#validation').textContent=e.message}};
+$('#previewNav').onclick=async()=>{if(!draft?.floors?.length){setStatus('请先创建楼层','err');return}try{showStep('validate');setStatus('正在计算导航预览…');const previewDraft=draft,previewSnapshot=snapshotDraft();const r=await api(`/api/scenes/${sceneId}/preview/navigation`,{method:'POST',body:JSON.stringify(previewDraft)});if(previewSnapshot!==snapshotDraft()){navPreview=null;renderPreviewList(null);clearAutoNavigationPreflight();setStatus('导航预览返回时草稿已变化，结果未采用；请重新运行预览','warn');$('#validation').textContent='草稿在预览期间发生变化，旧结果已丢弃。';return}navPreview=r;smokePreview=null;mode='orbit';setModes();deselect();redraw();renderPreviewList(r);refreshStepProgress();const missing=(r.paths||[]).filter(p=>!p.reachable);setStatus(`导航预览：${r.reachable}/${r.total} 个可走区可到达出口`+(missing.length?`；不可达 ${missing.length} 个区域，可点击列表定位`:''),missing.length?'err':'ok');$('#validation').textContent=missing.length?`仍有 ${missing.length} 个区域到不了出口，请在下方列表点击定位。`:'所有可走区均可通过区域、门或楼梯到达出口。';}catch(e){setStatus(e.message,'err');$('#validation').textContent=e.message}};
 $('#previewSmoke').onclick=async()=>{if(!draft?.floors?.length){setStatus('请先创建楼层','err');return}try{setStatus('正在计算烟雾预览…');const r=await api(`/api/scenes/${sceneId}/preview/smoke`,{method:'POST',body:JSON.stringify(draft)});smokePreview=r;mode='orbit';setModes();redraw();refreshStepProgress();const upstairs=(r.regions||[]).filter(x=>x.floor!==r.source?.floor&&x.value>0.02).length;mode='orbit';setModes();redraw();setStatus(`烟雾预览：源 ${r.source?.floor||'-'}，${upstairs} 个其他楼层区域受影响${navPreview?'；导航复核结果已保留':'；导航预览尚未运行'}`,'ok');}catch(e){setStatus(e.message,'err')}};
 $('#confirmReview').onclick=()=>{
  if(!(navPreview?.ok&&navPreview.reachable===navPreview.total)){setStatus('请先完成一次全部可达的导航预览','warn');return}
@@ -1065,6 +1205,7 @@ $('#syncAnnotationScale').onclick=syncAnnotationScale;$('#undoBtn').onclick=undo
 async function loadDraft(){
  try{
   const server=await api(`/api/scenes/${sceneId}/calibration`);
+  navigationPreflightState=null;
   serverBaseline=clone(server);draft=clone(server);savedSnapshot=snapshotDraft();draftKey=draftStorageKey();
   activeFloorId=draft.floors?.[0]?.id||null;drawingFloorId=null;undoStack=[];selected=null;points=[];measurePoints=[];stairPath=[];refreshStairDraftStatus();mode='orbit';navPreview=null;smokePreview=null;
   clearLegacyStoredDraft();
@@ -1072,14 +1213,14 @@ async function loadDraft(){
   if(stored&&baseSnapshotFromStored(stored)===savedSnapshot&&JSON.stringify(stored.draft)!==savedSnapshot){
    const when=Number(stored.savedAt)?new Date(stored.savedAt).toLocaleString('zh-CN'):'此前';
    if(window.confirm(`检测到 ${when} 自动暂存的未保存修改。是否恢复？\n选择“取消”会保留服务器版本，并清除这份暂存。`)){
-    draft=stored.draft;activeFloorId=draft.floors?.find(f=>f.id===activeFloorId)?.id||draft.floors?.[0]?.id||null;dirty=true;restoringDraft=true;setDraftState('dirty','已恢复未保存草稿');
+    draft=stored.draft;navigationPreflightState=stored.navigationPreflight&&typeof stored.navigationPreflight==='object'?adoptNavigationPreflightForDraft(stored.navigationPreflight,JSON.stringify(stored.draft)):null;activeFloorId=draft.floors?.find(f=>f.id===activeFloorId)?.id||draft.floors?.[0]?.id||null;dirty=true;restoringDraft=true;setDraftState('dirty','已恢复未保存草稿');
    }else{clearStoredDraft();dirty=false;setDraftState('saved','已使用服务器版本');}
   }else{
    if(stored)clearStoredDraft();
    dirty=false;setDraftState('saved','已同步');
   }
   rebuildFloorSelect();loadModel();$('#modelLabel').textContent=`${draft.name||sceneId} · ${draft.scale?.status==='verified'?'正式尺度':'临时比例'} · Web 视图`;$('#modelInfo').textContent='当前使用 Web 视图，绘制批次更少，适合校准操作。需要核对局部网格时，再切换移动端模型。';
-  refreshStepProgress();renderPreviewList(null);refreshSelectionBar();refreshModelButton();syncUndoButton();setStatus(restoringDraft?'已恢复自动暂存草稿':'场景草稿已读取',restoringDraft?'warn':'ok');
+  refreshStepProgress();refreshValidationChecklist();renderPreviewList(null);refreshSelectionBar();refreshModelButton();syncUndoButton();setStatus(restoringDraft?'已恢复自动暂存草稿':'场景草稿已读取',restoringDraft?'warn':'ok');
   if(matchMedia('(max-width:760px)').matches)toggleInspector(false);
  }catch(e){setStatus(e.message,'err');$('#tokenBox').classList.add('show')}
 }
@@ -1093,6 +1234,7 @@ function setDraftState(state,text){
  el.dataset.state=state;el.classList.toggle('is-dirty',state==='dirty');el.classList.toggle('is-error',state==='error');label.textContent=text;
 }
 function markDirty(reason='已修改',preservePreview=false){
+ if(!preservePreview)clearAutoNavigationPreflight();
  dirty=Boolean(savedSnapshot)&&snapshotDraft()!==savedSnapshot;
  if(dirty&&!preservePreview&&draft?.navigation_review?.status==='reviewed'){
   draft.navigation_review={...(draft.navigation_review||{}),status:'needs-review',message:'标注已变更，需重新运行导航预览并人工复核。'};
@@ -1154,7 +1296,7 @@ function markAnnotationRecheck(reason,targetDraft=draft){
 function persistDraft(){
  if(!draft||!dirty)return;
  try{
-  localStorage.setItem(draftStorageKey(),JSON.stringify({savedAt:Date.now(),base:savedSnapshot,draft}));
+  localStorage.setItem(draftStorageKey(),JSON.stringify({savedAt:Date.now(),base:savedSnapshot,draft,navigationPreflight:navigationPreflightState==null?null:clone(navigationPreflightState)}));
   lastAutosaveAt=Date.now();setDraftState('dirty',`已自动暂存 ${new Date().toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`);
  }catch(e){setDraftState('error','暂存失败：浏览器存储不可用');setStatus('自动暂存失败，请先保存到服务器','err')}
 }
@@ -1195,6 +1337,7 @@ function captureAutoCalibrationState(){
   candidates:autoCandidates==null?null:clone(autoCandidates),
   exclusions:autoExclusions==null?null:clone(autoExclusions),
   diagnostics:autoDiagnostics==null?null:clone(autoDiagnostics),
+  navigationPreflight:navigationPreflightState==null?null:clone(navigationPreflightState),
   analysis:analysisSnapshot,
   cancel:typeof analysis?.cancel==='function'?analysis.cancel:null
  };
@@ -1205,6 +1348,7 @@ function restoreAutoCalibrationState(state){
  autoCandidates=state.candidates==null?null:clone(state.candidates);
  autoExclusions=state.exclusions==null?null:clone(state.exclusions);
  autoDiagnostics=state.diagnostics==null?null:clone(state.diagnostics);
+ navigationPreflightState=state.navigationPreflight==null?null:clone(state.navigationPreflight);
  autoAnalysis=state.analysis==null?null:{...clone(state.analysis),...(typeof state.cancel==='function'?{cancel:state.cancel}:{})};
  return true;
 }
@@ -1217,18 +1361,23 @@ function undo(){
  if(pending?.kind==='stair'){stairPath.pop();refreshStairDraftStatus();syncUndoButton();redraw();setStatus(stairPath.length?`已撤销楼梯路径点，剩余 ${stairPath.length} 个点`:'已清除楼梯底端，请重新选择起点','ok');return}
  if(pending?.kind==='measure'){measurePoints.pop();redraw();updateMeasure();syncUndoButton();setStatus(measurePoints.length?'已撤销最后一个测量点':'已清除全部测量点','ok');return}
  const previous=undoStack.pop();if(!previous){syncUndoButton();setStatus('没有可撤销的操作','warn');return}
+ const savedPreflight=previous.autoCalibration?.navigationPreflight?clone(previous.autoCalibration.navigationPreflight):null;
+ clearAutoNavigationPreflight();
  clearAutoFocus({update:false});
  activeFloorId=previous.draft.floors?.some(floor=>floor.id===previous.activeFloorId)?previous.activeFloorId:previous.draft.floors?.[0]?.id||null;
  draft=previous.draft;drawingFloorId=null;navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();
  if(previous.autoCalibration)restoreAutoCalibrationState(previous.autoCalibration);
- rebuildFloorSelect();redraw();if(cutawayEnabled&&root)updateFloorCutaway();refreshAutoCandidatePreview();markDirty();syncUndoButton();setStatus(`已撤销：${previous.label}${previous.autoCalibration?' · 自动候选、排除审计与勾选状态已恢复':''}`,'ok');
+ const restoredSnapshot=snapshotDraft();
+ if(savedPreflight&&savedPreflight.draftFingerprint===restoredSnapshot)navigationPreflightState=adoptNavigationPreflightForDraft(savedPreflight,restoredSnapshot);
+ else navigationPreflightState=null;
+ rebuildFloorSelect();redraw();if(cutawayEnabled&&root)updateFloorCutaway();refreshAutoCandidatePreview();markDirty('已撤销',true);refreshNavigationPreflightCard();syncUndoButton();setStatus(`已撤销：${previous.label}${previous.autoCalibration?' · 自动候选、排除审计与勾选状态已恢复':''}`,'ok');
 }
 function discardUnsavedChanges(){
  if(!draft||!serverBaseline){setStatus('服务器基线尚未读取','warn');return}
  if(!dirty&&snapshotDraft()===savedSnapshot){setStatus('当前没有未保存修改','ok');return}
  if(!window.confirm('放弃所有未保存的标注修改，并恢复为服务器上的版本？\n此操作会清除浏览器暂存和撤销记录。'))return;
- invalidateAutoAnalysis();autoCandidates=null;autoExclusions=null;draft=clone(serverBaseline);activeFloorId=draft.floors?.find(f=>f.id===activeFloorId)?.id||draft.floors?.[0]?.id||null;
- dirty=false;restoringDraft=false;drawingFloorId=null;undoStack=[];syncUndoButton();clearTimeout(autosaveTimer);clearStoredDraft();navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();rebuildFloorSelect();renderPreviewList(null);refreshAutoCandidatePreview();redraw();if(cutawayEnabled&&root)updateFloorCutaway();setDraftState('saved','已恢复服务器版本');refreshStepProgress();refreshSelectionBar();setStatus('已放弃未保存修改','ok');
+ invalidateAutoAnalysis();autoCandidates=null;autoExclusions=null;clearAutoNavigationPreflight();draft=clone(serverBaseline);activeFloorId=draft.floors?.find(f=>f.id===activeFloorId)?.id||draft.floors?.[0]?.id||null;
+ dirty=false;restoringDraft=false;drawingFloorId=null;undoStack=[];syncUndoButton();clearTimeout(autosaveTimer);clearStoredDraft();navPreview=smokePreview=null;selected=null;points=[];stairPath=[];refreshStairDraftStatus();mode='orbit';setModes();rebuildFloorSelect();renderPreviewList(null);refreshAutoCandidatePreview();redraw();if(cutawayEnabled&&root)updateFloorCutaway();setDraftState('saved','已恢复服务器版本');refreshStepProgress();refreshValidationChecklist();refreshSelectionBar();setStatus('已放弃未保存修改','ok');
 }
 function setCalibrationActionTip(id,available,title,feature,reason=''){
  const button=$('#'+id);if(!button)return;
@@ -1400,6 +1549,7 @@ async function startAutoAnalysis(){
  if(!root){setStatus('建筑网格尚未加载完成，请稍后再试','warn');return}
  if(autoAnalysis){setStatus('自动分析正在进行，请等待完成或先取消','warn');return}
  const generation=++autoAnalysisGeneration;
+ clearAutoNavigationPreflight();
  try{
   const geometry=collectWorldGeometry(root);
   if(generation!==autoAnalysisGeneration)return;
@@ -1500,7 +1650,7 @@ function applyAutoCandidates(){
  const effectiveIndexes=new Set(plan.operations.map(operation=>operation.candidateIndex));
  const acceptedFloors=requestedFloors.filter(candidate=>effectiveIndexes.has(autoCandidates.indexOf(candidate)));
  const blockedRegions=acceptedFloors.flatMap(floor=>floor.regions||[]).filter(region=>region.accepted&&region.physically_blocked);
- if(blockedRegions.length&&!window.confirm(`已接受 ${blockedRegions.length} 个小于人员直径的窄口区域。这些区域无法保证人员通过，确定仍要应用吗？`)){setStatus('已取消应用，草稿未修改','warn');return}
+ if(blockedRegions.length&&!window.confirm(`已接受 ${blockedRegions.length} 个小于碰撞代理直径的窄口区域。这些区域无法保证碰撞代理通过，确定仍要应用吗？`)){setStatus('已取消应用，草稿未修改','warn');return}
 
  const replacements=plan.operations.filter(operation=>operation.kind==='replace').map(operation=>({operation,impact:autoReplacementImpact(autoCandidates[operation.candidateIndex],plan)})).filter(item=>item.impact&&item.impact.regions);
  if(replacements.length){
@@ -1517,16 +1667,31 @@ function applyAutoCandidates(){
  try{result=applyAutoApplyPlan(draft,plan)}catch(error){console.error('自动候选应用失败',error);setStatus(`自动候选未应用：${error.message}；现有草稿未修改`,'err');return}
  if(!result.changed){setStatus('没有可提交的自动区域变化；现有标注保持不变','warn');return}
  pushUndo('应用自动校准候选',{autoCalibration:beforeAuto},beforeDraft);
+ const pendingPreflight=result.navigationPreflight?clone(result.navigationPreflight):null;
  draft=result.draft;
  activeFloorId=draft.floors.find(floor=>floor.id===activeFloorId)?.id||draft.floors[0]?.id||null;
  drawingFloorId=null;points=[];stairPath=[];measurePoints=[];holeRegionId=null;navPreview=smokePreview=null;selected=null;mode='orbit';
  clearAutoFocus({update:false});autoCandidates=null;autoAnalysis=null;autoExclusions=null;autoDiagnostics=null;autoPlanCache={fingerprint:'',candidatesFingerprint:'',plan:null,error:null};
- rebuildFloorSelect();refreshStairDraftStatus();setModes();refreshSelectionBar();refreshAutoCandidatePreview();redraw();if(cutawayEnabled&&root)updateFloorCutaway();markDirty();
+ rebuildFloorSelect();refreshStairDraftStatus();setModes();refreshSelectionBar();refreshAutoCandidatePreview();redraw();if(cutawayEnabled&&root)updateFloorCutaway();
+ clearAutoNavigationPreflight();markDirty('自动校准候选已应用',true);
+ const appliedSnapshot=snapshotDraft();
+ navigationPreflightState=pendingPreflight?adoptNavigationPreflightForDraft(pendingPreflight,appliedSnapshot):null;
+ refreshNavigationPreflightCard();showStep('validate');
  const skipped=[plan.skippedCompetition?`跳过 ${plan.skippedCompetition} 个竞争同一楼层的候选`:'',plan.skippedExisting?`已跳过 ${plan.skippedExisting} 个匹配已有楼层的区域（未勾选替换）`:'',plan.skippedNoRegion?`${plan.skippedNoRegion} 个匹配楼层没有写入自动区域`:''].filter(Boolean).join('；');
  const empty=result.emptyFloorIds||[];
  const emptyNames=empty.map(id=>draft.floors.find(floor=>floor.id===id)?.name||id);
- const summary=[`新增 ${result.addedFloors} 个楼层`,`写入 ${result.addedRegions} 个可走区`,result.updatedFloors?`更新 ${result.updatedFloors} 个楼层标高`:'',result.replacedFloors?`替换 ${result.replacedFloors} 个楼层的标注`:'',skipped].filter(Boolean).join('；');
- if(empty.length){setStatus(`已应用自动校准：${summary}。${emptyNames.join('、')} 仍没有可走区，必须绘制后才能保存；可撤销`,'warn');$('#validation').textContent=`空楼层：${emptyNames.join('、')}。请先绘制至少一个可走区。`;return}
+ const preflight=navigationPreflightState||result.navigationPreflight;
+ const unreachable=(preflight?.unreachableRegions||[]).filter(region=>region.source==='auto');
+ const unreachableText=unreachable.length?`${unreachable.length} 个自动区域尚不能到达出口`:(navigationPreflightDerivedStatus(preflight)==='failed'?'连通性预检未通过':'');
+ const summary=[`新增 ${result.addedFloors} 个楼层`,`写入 ${result.addedRegions} 个可走区`,result.updatedFloors?`更新 ${result.updatedFloors} 个楼层标高`:'',result.replacedFloors?`替换 ${result.replacedFloors} 个楼层的标注`:'',unreachableText,skipped].filter(Boolean).join('；');
+ const preflightLines=[...(preflight?.errors||[]),...(preflight?.warnings||[])].filter(Boolean);
+ const emptyText=empty.length?`空楼层：${emptyNames.join('、')} 仍没有可走区，必须绘制后才能保存。`:'';
+ if(preflightLines.length||emptyText){
+  $('#validation').textContent=[preflightLines.length?`连通性预检：${preflightLines.join(' ')}`:'',emptyText,'应用结果已进入草稿并可撤销；请在通路步骤补充连接，再运行导航预览。'].filter(Boolean).join(' ');
+  setStatus(`已应用自动校准：${summary}；仍有需复核项目，请查看检查清单`,'warn');
+  return;
+ }
+ $('#validation').textContent='';
  setStatus(`已应用自动校准：${summary}；候选与勾选状态已保存到撤销记录`,'ok');
 }
 function renderPreviewList(preview){
@@ -1646,7 +1811,7 @@ function autoCalibrationDebugState(){
   focusedExclusionKey:focusedAutoExclusionKey
  };
 }
-window.calibrationUI={debug:()=>({ready:!!root,mode,orbit:{theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.toArray()},sceneBounds:sceneBounds?{min:sceneBounds.min.toArray(),max:sceneBounds.max.toArray()}:null,activeFloorId,drawingFloorId,cutawayEnabled,clipTop:Number.isFinite(clipTop)?clipTop:null,cutawayFocusY,focusedAutoExclusionKey,autoCalibration:autoCalibrationDebugState(),modelLoads:modelGeneration,measurePoints:measurePoints.length,points:points.length,stairPath:stairPath.map(point=>[...point]),stairPathMode,stairPathStatus:$('#stairDraftStatus')?.textContent||'',pendingUndo:pendingUndo()?.kind||null,floors:draft?.floors?.length,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,fps:renderBudget.fps,selected:selected?{type:selected.type,id:selected.id,label:selected.label}:null,dirty,restoringDraft,undoStack:undoStack.length,previewReachable:navPreview?.reachable??null,previewTotal:navPreview?.total??null,webModelMode,lastAutosaveAt,regions:objectCounts().regions,scaleStatus:draft?.scale?.status||null,annotationRecheck:draft?.annotation_recheck?.status||null,annotationSyncPending:draft?.annotation_recheck?.sync_pending??null,annotationScaleFactor:Number.isFinite(Number(draft?.annotation_recheck?.factor))?Number(draft.annotation_recheck.factor):null,annotationRecheckReason:draft?.annotation_recheck?.reason||'',navigationReview:draft?.navigation_review?.status||null,stairs:(draft?.stairs||[]).map(s=>({id:s.id,fromFloor:s.from_floor,toFloor:s.to_floor,pathPoints:s.path?.length||0})),scene:root?(()=>{let n=0;root.traverse(o=>{if(o.isMesh)n++});return {meshes:n}})():null})};
+window.calibrationUI={debug:()=>({ready:!!root,mode,orbit:{theta:orbit.theta,phi:orbit.phi,dist:orbit.dist,target:orbit.target.toArray()},sceneBounds:sceneBounds?{min:sceneBounds.min.toArray(),max:sceneBounds.max.toArray()}:null,activeFloorId,drawingFloorId,cutawayEnabled,clipTop:Number.isFinite(clipTop)?clipTop:null,cutawayFocusY,focusedAutoExclusionKey,autoCalibration:autoCalibrationDebugState(),modelLoads:modelGeneration,measurePoints:measurePoints.length,points:points.length,stairPath:stairPath.map(point=>[...point]),stairPathMode,stairPathStatus:$('#stairDraftStatus')?.textContent||'',pendingUndo:pendingUndo()?.kind||null,floors:draft?.floors?.length,drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,fps:renderBudget.fps,selected:selected?{type:selected.type,id:selected.id,label:selected.label}:null,dirty,restoringDraft,undoStack:undoStack.length,previewReachable:navPreview?.reachable??null,previewTotal:navPreview?.total??null,navigationPreflight:navigationPreflightState?{status:navigationPreflightState.status||null,regionCount:navigationPreflightState.regionCount??null,connectionCounts:navigationPreflightState.connectionCounts||null,unreachableRegionIds:Array.isArray(navigationPreflightState.unreachableRegionIds)?navigationPreflightState.unreachableRegionIds.slice():[]}:null,webModelMode,lastAutosaveAt,regions:objectCounts().regions,scaleStatus:draft?.scale?.status||null,annotationRecheck:draft?.annotation_recheck?.status||null,annotationSyncPending:draft?.annotation_recheck?.sync_pending??null,annotationScaleFactor:Number.isFinite(Number(draft?.annotation_recheck?.factor))?Number(draft.annotation_recheck.factor):null,annotationRecheckReason:draft?.annotation_recheck?.reason||'',navigationReview:draft?.navigation_review?.status||null,stairs:(draft?.stairs||[]).map(s=>({id:s.id,fromFloor:s.from_floor,toFloor:s.to_floor,pathPoints:s.path?.length||0})),scene:root?(()=>{let n=0;root.traverse(o=>{if(o.isMesh)n++});return {meshes:n}})():null})};
 $('#tokenInput').value=token;showStep('scale');loadDraft();animate();
 </script>
 </body></html>
