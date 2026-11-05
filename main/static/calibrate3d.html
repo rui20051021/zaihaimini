@@ -122,7 +122,7 @@ import {RenderBudget} from '/static/utils/render-performance.mjs?v=20261022';
 import {mergeGeometries} from '/static/utils/BufferGeometryUtils.js?v=20261026a';
 import {disposeModel} from '/static/utils/participant-motion.mjs?v=20261016';
 import {collectWorldGeometry, analyzeInWorker} from '/static/utils/auto-calibrate.mjs?v=20261104a';
-import {createAutoApplyPlan,applyAutoApplyPlan,syncFloorDependentHeights,listEmptyWalkableFloors,AUTO_MATCH_TOLERANCE_M} from '/static/utils/auto-apply-plan.mjs?v=20261104a';
+import {createAutoApplyPlan,applyAutoApplyPlan,syncFloorDependentHeights,listEmptyWalkableFloors,AUTO_MATCH_TOLERANCE_M} from '/static/utils/auto-apply-plan.mjs?v=20261105a';
 initSpatialUI('calibration'); import {GLTFLoader} from '/static/vendor/GLTFLoader.js'; import {MeshoptDecoder} from '/static/vendor/meshopt_decoder.module.js';
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
 const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, drawingFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight', autoAnalysis=null, autoAnalysisGeneration=0, autoCandidates=null, autoExclusions=null, autoDiagnostics=null, navigationPreflightState=null, cutawayFocusY=null, focusedAutoExclusionKey=null;
@@ -675,11 +675,11 @@ function ringsOverlap2(a,b){
  const containsPoint=(ring,lookup)=>ringSamples(ring).some(p=>pointInRing2(p,ring)&&pointStrictlyInRing2(p,lookup));
  return containsPoint(a,b)||containsPoint(b,a);
 }
-function draftAudit(){
+function draftAudit({includeScale=true}={}){
  const floors=draft?.floors||[],doors=draft?.doors||[],exits=draft?.exits||[],stairs=draft?.stairs||[];
  const out={model:[],scale:[],floorCoverage:[],geometry:[],regionOverlap:[],obstacles:[],spawn:[],exits:[],doors:[],doorClearance:[],stairs:[]};
  if(!draft?.model?.file&&!draft?.model?.mobile?.file)out.model.push('尚未配置建筑模型');
- if(draft?.scale?.status!=='verified')out.scale.push('真实尺度尚未验证');
+ if(includeScale&&draft?.scale?.status!=='verified')out.scale.push('真实尺度尚未验证');
  if(!floors.length)out.floorCoverage.push('场景中还没有楼层');
  for(const floor of floors){
   const label=floor.name||floor.id,regions=floor.walkable||[];
@@ -752,11 +752,11 @@ const auditDefinitions=[
  ['exits','已配置出口，且位于可走区内','log-out'],['doors','门的中心位于其连接的两侧区域之一','door-open'],['doorClearance','门洞净宽满足碰撞代理通行余量','door-open'],
  ['stairs','楼梯上下端落在对应楼层可走区内','route']
 ];
-function listDraftIssues(){
+function listDraftIssues({includeScale=true}={}){
  if(!draft)return ['场景尚未读取'];
- const audit=draftAudit();return auditDefinitions.flatMap(([key])=>audit[key]);
+ const audit=draftAudit({includeScale});return auditDefinitions.flatMap(([key])=>audit[key]);
 }
-function firstDraftIssue(){return listDraftIssues()[0]||''}
+function firstDraftIssue(options={}){return listDraftIssues(options)[0]||''}
 function navigationPreflightStatusLabel(status){
  return ({passed:'已通过',warning:'有提示',failed:'未通过'})[status]||'未知状态';
 }
@@ -1182,7 +1182,7 @@ $('#cancelAutoAnalysis').onclick=cancelAutoAnalysis;
 $('#applyAutoCandidates').onclick=applyAutoCandidates;
 $('#clearAutoCandidates').onclick=clearAutoCandidates;
 $('#uploadBtn').onclick=async()=>{const file=$('#fileInput').files[0];if(!file){setStatus('请选择 .glb 文件','err');return}try{setStatus('正在上传 GLB…');const r=await fetch(`/api/scenes/upload?filename=${encodeURIComponent(file.name)}`,{method:'POST',headers:{...authHeaders()},body:file});const d=await r.json();if(!r.ok)throw new Error(d.detail||`上传失败 ${r.status}`);sceneId=d.id;history.replaceState(null,'',`/calibrate?scene=${sceneId}`);await loadDraft();setStatus('上传成功，已创建临时比例草稿','ok')}catch(e){setStatus(e.message,'err')}};
-$('#saveBtn').onclick=async()=>{if(!draft)return;const issue=firstDraftIssue();if(issue){setStatus(`暂不能保存：${issue}`,'err');$('#validation').textContent=`本地检查未通过：${issue}`;return}try{$('#saveBtn').disabled=true;const result=await api(`/api/scenes/${sceneId}/calibration`,{method:'PUT',body:JSON.stringify(draft)});savedSnapshot=snapshotDraft();serverBaseline=clone(draft);dirty=false;clearTimeout(autosaveTimer);clearStoredDraft();setDraftState('saved','已同步到服务器');refreshStepProgress();setStatus(`校准已保存：${result.floors??draft.floors.length} 层、${result.regions??objectCounts().regions} 个可走区`,'ok');$('#validation').textContent=draft.navigation_review?.status==='reviewed'?'服务端校验通过，导航已复核。若比例或通路未变化，可在观察台激活。':'服务端校验通过。仍需导航预览与人工复核，才能用于正式采集。'}catch(e){$('#validation').textContent=e.message;setStatus(e.message,'err')}finally{refreshActionState()}};
+$('#saveBtn').onclick=async()=>{if(!draft)return;const issue=firstDraftIssue({includeScale:false});if(issue){setStatus(`暂不能保存：${issue}`,'err');$('#validation').textContent=`本地检查未通过：${issue}`;return}try{$('#saveBtn').disabled=true;const result=await api(`/api/scenes/${sceneId}/calibration`,{method:'PUT',body:JSON.stringify(draft)});savedSnapshot=snapshotDraft();serverBaseline=clone(draft);dirty=false;clearTimeout(autosaveTimer);clearStoredDraft();setDraftState('saved','已同步到服务器');refreshStepProgress();setStatus(`校准已保存：${result.floors??draft.floors.length} 层、${result.regions??objectCounts().regions} 个可走区`,'ok');const provisional=draft.scale?.status!=='verified';$('#validation').textContent=provisional?'已保存服务器校准草稿。当前比例仅供标注预览；正式激活和采集仍须完成真实尺度、全部可达导航预览与人工复核。':draft.navigation_review?.status==='reviewed'?'服务端校验通过，导航已复核。若比例或通路未变化，可在观察台激活。':'服务端校验通过。仍需导航预览与人工复核，才能用于正式采集。'}catch(e){$('#validation').textContent=e.message;setStatus(e.message,'err')}finally{refreshActionState()}};
 $('#activateBtn').onclick=async()=>{if(!$('#activateBtn').disabled){if(!window.confirm('切换观察主机到这份已保存的校准场景？正在进行的场次需先结束或重置。'))return}try{const r=await api(`/api/scenes/${sceneId}/activate`,{method:'POST',body:'{}'});setStatus('场景已激活','ok');$('#validation').textContent=`已激活：${r.active||sceneId}`;refreshActionState()}catch(e){setStatus(e.message,'err');$('#validation').textContent=e.message}};
 $('#previewNav').onclick=async()=>{if(!draft?.floors?.length){setStatus('请先创建楼层','err');return}try{showStep('validate');setStatus('正在计算导航预览…');const previewDraft=draft,previewSnapshot=snapshotDraft();const r=await api(`/api/scenes/${sceneId}/preview/navigation`,{method:'POST',body:JSON.stringify(previewDraft)});if(previewSnapshot!==snapshotDraft()){navPreview=null;renderPreviewList(null);clearAutoNavigationPreflight();setStatus('导航预览返回时草稿已变化，结果未采用；请重新运行预览','warn');$('#validation').textContent='草稿在预览期间发生变化，旧结果已丢弃。';return}navPreview=r;smokePreview=null;mode='orbit';setModes();deselect();redraw();renderPreviewList(r);refreshStepProgress();const missing=(r.paths||[]).filter(p=>!p.reachable);setStatus(`导航预览：${r.reachable}/${r.total} 个可走区可到达出口`+(missing.length?`；不可达 ${missing.length} 个区域，可点击列表定位`:''),missing.length?'err':'ok');$('#validation').textContent=missing.length?`仍有 ${missing.length} 个区域到不了出口，请在下方列表点击定位。`:'所有可走区均可通过区域、门或楼梯到达出口。';}catch(e){setStatus(e.message,'err');$('#validation').textContent=e.message}};
 $('#previewSmoke').onclick=async()=>{if(!draft?.floors?.length){setStatus('请先创建楼层','err');return}try{setStatus('正在计算烟雾预览…');const r=await api(`/api/scenes/${sceneId}/preview/smoke`,{method:'POST',body:JSON.stringify(draft)});smokePreview=r;mode='orbit';setModes();redraw();refreshStepProgress();const upstairs=(r.regions||[]).filter(x=>x.floor!==r.source?.floor&&x.value>0.02).length;mode='orbit';setModes();redraw();setStatus(`烟雾预览：源 ${r.source?.floor||'-'}，${upstairs} 个其他楼层区域受影响${navPreview?'；导航复核结果已保留':'；导航预览尚未运行'}`,'ok');}catch(e){setStatus(e.message,'err')}};
@@ -1394,7 +1394,7 @@ function authGuidance(){
  const hint=$('#authHint');const text=token?'浏览器已保存管理令牌；若服务端拒绝，请在“模型与场景”中重新验证。':'管理令牌尚未填写；参数面板中的读取、预览、保存和激活请求都需要管理员权限。';if(hint)hint.textContent=text;return text;
 }
 function refreshActionState(){
- const ready=Boolean(draft),floors=draft?.floors||[],active=activeFloor(),modelReady=Boolean(root),hasFloor=floors.some(f=>(f.walkable||[]).length),activeHasFloor=Boolean((active?.walkable||[]).length),issue=draft?firstDraftIssue():'场景尚未读取';
+ const ready=Boolean(draft),floors=draft?.floors||[],active=activeFloor(),modelReady=Boolean(root),hasFloor=floors.some(f=>(f.walkable||[]).length),activeHasFloor=Boolean((active?.walkable||[]).length),issue=draft?firstDraftIssue({includeScale:false}):'场景尚未读取';
  const issueText=issue||'',selectedFile=$('#fileInput')?.files?.[0]||null;
  const raw=Number($('#referenceInput')?.dataset.raw),real=Number($('#referenceInput')?.value);
  const canScale=ready&&measurePoints.length===2&&raw>0&&real>0;

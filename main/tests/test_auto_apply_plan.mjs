@@ -125,6 +125,9 @@ run('已接受候选竞争同一现有楼层时，落选候选不会创建新楼
   const draft = makeDraft();
   draft.floors = [draft.floors[0]];
   draft.floors[0].elevation_m = 1.00;
+  draft.doors = [];
+  draft.exits = [];
+  draft.stairs = [];
   const plan = createAutoApplyPlan(draft, [
     candidate('near', 0.90, { replaceExisting: true, regions: [{ outer: ring(10, 0, 12, 1) }] }),
     candidate('far', 1.10, { replaceExisting: true, regions: [{ outer: ring(13, 0, 15, 1) }] }),
@@ -189,8 +192,10 @@ run('未勾选替换时保留现有可行区、起始区和自动区域', () => 
   assert.equal(result.draft.floors[0].spawn_zones[0].id, 'spawn-1');
 });
 
-run('明确替换只清理目标楼层的区域、门、出口和关联楼梯', () => {
+run('明确替换无出口和跨层楼梯的楼层时清理区域、起始区和门', () => {
   const draft = makeDraft();
+  draft.exits = [];
+  draft.stairs = [];
   const plan = createAutoApplyPlan(draft, [
     candidate('floor-1-replace', 0.12, {
       replaceExisting: true,
@@ -209,10 +214,46 @@ run('明确替换只清理目标楼层的区域、门、出口和关联楼梯', 
   assert.deepEqual(second.walkable.map((region) => region.id), ['floor-2-room']);
   assert.deepEqual(third.walkable.map((region) => region.id), ['floor-3-room']);
   assert.deepEqual(result.draft.doors.map((door) => door.id), ['door-2', 'door-3']);
-  assert.deepEqual(result.draft.exits.map((exit) => exit.id), ['exit-2']);
-  assert.deepEqual(result.draft.stairs.map((stair) => stair.id), ['stair-2-3']);
+  assert.deepEqual(result.draft.exits, []);
+  assert.deepEqual(result.draft.stairs, []);
   assert.equal(result.draft.annotation_recheck.status, 'needs-recheck');
   assert.equal(result.draft.navigation_review.status, 'needs-review');
+});
+
+run('明确替换含出口的楼层时原子拒绝并保留整份草稿', () => {
+  const draft = makeDraft();
+  draft.stairs = [];
+  const before = clone(draft);
+  const plan = createAutoApplyPlan(draft, [
+    candidate('floor-1-exit-replace', 0.12, {
+      replaceExisting: true,
+      regions: [{ outer: ring(10, 10, 13, 13) }],
+    }),
+  ]);
+
+  assert.throws(
+    () => applyAutoApplyPlan(draft, plan),
+    /自动替换已拒绝.*出口|出口.*现有草稿未修改/,
+  );
+  assert.deepEqual(draft, before, '替换被拒绝后不能删除出口、门、起始区或任何区域');
+});
+
+run('明确替换含跨层楼梯端点的楼层时原子拒绝并保留整份草稿', () => {
+  const draft = makeDraft();
+  draft.exits = [];
+  const before = clone(draft);
+  const plan = createAutoApplyPlan(draft, [
+    candidate('floor-2-stair-replace', 1.32, {
+      replaceExisting: true,
+      regions: [{ outer: ring(10, 10, 13, 13) }],
+    }),
+  ]);
+
+  assert.throws(
+    () => applyAutoApplyPlan(draft, plan),
+    /自动替换已拒绝.*跨层楼梯|跨层楼梯.*现有草稿未修改/,
+  );
+  assert.deepEqual(draft, before, '替换被拒绝后不能删除楼梯、门、起始区或任何区域');
 });
 
 run('已有楼层跳过替换与第四层新建可以在同一计划中混合应用', () => {

@@ -903,6 +903,27 @@ export function applyAutoApplyPlan(draft, plan) {
   let updatedFloors = 0;
   let replacedFloors = 0;
 
+  const replacementFloorIds = new Set(
+    plan.operations
+      .filter((operation) => operation?.kind === 'replace')
+      .map((operation) => String(operation?.targetId ?? '').trim())
+      .filter(Boolean),
+  );
+  if (replacementFloorIds.size) {
+    const blockedExits = staged.exits.filter((exit) => replacementFloorIds.has(String(exit?.floor ?? '')));
+    const blockedStairs = staged.stairs.filter((stair) => replacementFloorIds.has(String(stair?.from_floor ?? ''))
+      || replacementFloorIds.has(String(stair?.to_floor ?? '')));
+    if (blockedExits.length || blockedStairs.length) {
+      const floorLabels = staged.floors
+        .filter((floor) => replacementFloorIds.has(floorIdOf(floor)))
+        .map((floor) => floorDisplayName(floor));
+      const blockedParts = [];
+      if (blockedExits.length) blockedParts.push(`出口 ${blockedExits.map((exit) => String(exit?.id ?? '')).filter(Boolean).join('、')}`);
+      if (blockedStairs.length) blockedParts.push(`跨层楼梯 ${blockedStairs.map((stair) => String(stair?.id ?? '')).filter(Boolean).join('、')}`);
+      throw new Error(`自动替换已拒绝：${floorLabels.join('、')} 包含出口或跨层楼梯连接（${blockedParts.join('；')}）；请先手动迁移或删除这些连接，现有草稿未修改`);
+    }
+  }
+
   for (const operation of plan.operations) {
     const elevation = finiteNumber(operation?.elevation);
     if (elevation == null || Math.abs(elevation) > 1000) throw new Error('候选 ' + (operation?.candidateId || '') + ' 的标高无效');
