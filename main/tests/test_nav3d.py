@@ -104,6 +104,13 @@ class Navigation3DTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sim = EvacSim3D(school_scene(), Path(tmp), seed=6)
             sim.ensure_population(1)
+            # Keep the replay fixture away from the exit so a random first
+            # spawn cannot escape before the first sample is recorded.
+            agent = next(iter(sim.agents.values()))
+            agent.position = (7.0, 2.52, 3.4)
+            agent.floor_id = "floor-3"
+            agent.region_id = "floor-3-main"
+            agent.nav_node = sim._nearest_nav_node("floor-3-main", agent.position)
             sim.start()
             sim.step(0.02)
             replay = sim.replay_payload()
@@ -140,13 +147,13 @@ class Navigation3DTests(unittest.TestCase):
             self.assertTrue(sim.ignite("floor-1", 5.0, 3.8))
 
     def test_builtin_school_navigation_is_aligned_to_visual_model_contract(self):
-        # Deliberate calibration correction: elevations follow the model slab
-        # tops (0.12/1.32/2.52), not the old 0/1.2/2.4 plate bottoms.
+        # Elevations follow the model slab tops, including the calibrated
+        # fourth storey found by the automatic floor detector.
         scene = school_scene()
         transform = scene["transform"]
         self.assertAlmostEqual(transform["translation"][1], 0.0, places=6)
         self.assertGreater(transform["translation"][2], 20.0)
-        self.assertEqual([f["elevation_m"] for f in scene["floors"]], [0.12, 1.32, 2.52])
+        self.assertEqual([f["elevation_m"] for f in scene["floors"]], [0.12, 1.32, 2.52, 3.72])
         self.assertEqual(scene["scale"]["status"], "provisional")
         for floor in scene["floors"]:
             ids = {region["id"] for region in floor["walkable"]}
@@ -154,9 +161,11 @@ class Navigation3DTests(unittest.TestCase):
             for zone in floor["spawn_zones"]:
                 self.assertTrue(any(point_in_region(tuple(p), region) for region in floor["walkable"] for p in zone["outer"]))
         stairs = scene["stairs"]
-        self.assertEqual(len(stairs), 2)
+        self.assertEqual(len(stairs), 3)
         self.assertLess(stairs[0]["bottom"][0], 5.0)
         self.assertGreater(stairs[0]["path"][0][2], stairs[0]["path"][3][2])
+        self.assertEqual([(s["from_floor"], s["to_floor"]) for s in stairs],
+                         [("floor-1", "floor-2"), ("floor-2", "floor-3"), ("floor-3", "floor-4")])
         self.assertEqual(scene["exits"][0]["floor"], "floor-1")
         self.assertGreater(scene["exits"][0]["position"][2], 4.5)
 
@@ -193,7 +202,11 @@ class Navigation3DTests(unittest.TestCase):
 
     def test_smoke_reaches_lower_floor_through_stairs(self):
         with tempfile.TemporaryDirectory() as tmp:
-            sim = EvacSim3D(school_scene(), Path(tmp), seed=2)
+            scene = school_scene()
+            scene["floors"] = scene["floors"][:3]
+            scene["stairs"] = scene["stairs"][:2]
+            scene["doors"] = [d for d in scene["doors"] if d["floor"] != "floor-4"]
+            sim = EvacSim3D(scene, Path(tmp), seed=2)
             sim.ensure_population(0)
             sentinel = sim.add_human("smoke-sentinel", "烟雾测试", "#ffffff")
             sentinel.state = "offline"
@@ -261,7 +274,7 @@ class Navigation3DTests(unittest.TestCase):
             with self.assertRaises(SceneValidationError):
                 validate_scene(scene)
             sim = EvacSim3D(scene, Path(tmp), require_route=False)
-            self.assertEqual(len(sim.scene["floors"]), 3)
+            self.assertEqual(len(sim.scene["floors"]), 4)
 
     def test_preview_smoke_propagates_through_stairs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -346,13 +359,15 @@ class Navigation3DTests(unittest.TestCase):
             sim = EvacSim3D(school_scene(), Path(tmp), seed=11)
             human = sim.add_human("p1", "玩家", "#ff8800")
             sim.ensure_population(0)
-            # Force the top floor so a successful run must use both stairs.
-            human.position = (7.0, 2.52, 3.4)
+            # Start by the descent stair approach. The fourth-storey flight
+            # shares this landing, so the test isolates the two-flight descent.
+            human.position = (4.35, 2.52, 3.12)
             human.floor_id = "floor-3"
             human.region_id = "floor-3-main"
             human.nav_node = sim._nearest_nav_node("floor-3-main", human.position)
             sim.start()
             off_surface = 0
+            connectors = []
             for _ in range(6000):
                 # Stair heads are the upper ends of the measured switchback.
                 if human.floor_id == "floor-3":
@@ -365,6 +380,8 @@ class Navigation3DTests(unittest.TestCase):
                 norm = math.hypot(dx, dz) or 1.0
                 human.input = (dx / norm, dz / norm)
                 sim.step(0.02)
+                if human.active_connector and (not connectors or connectors[-1] != human.active_connector):
+                    connectors.append(human.active_connector)
                 if not human.active_connector and not point_in_region(
                         (human.position[0], human.position[2]),
                         sim._region_index[human.region_id]):
@@ -372,6 +389,7 @@ class Navigation3DTests(unittest.TestCase):
                 if human.escaped or human.failed:
                     break
             self.assertTrue(human.escaped, f"human stuck in {human.state} at {human.position}")
+            self.assertEqual(connectors[:2], ["stairs-2", "stairs-1"])
             self.assertFalse(human.failed)
             self.assertEqual(off_surface, 0)
             self.assertTrue(any(row[15] == "walking-stairs" for row in human.track))

@@ -187,11 +187,11 @@
             ],
             [
               12.4,
-              4.0
+              4
             ],
             [
               6.2,
-              4.0
+              4
             ]
           ]
         }
@@ -333,11 +333,11 @@
             ],
             [
               12.4,
-              4.0
+              4
             ],
             [
               6.2,
-              4.0
+              4
             ]
           ]
         }
@@ -479,11 +479,157 @@
             ],
             [
               12.4,
-              4.0
+              4
             ],
             [
               6.2,
-              4.0
+              4
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "id": "floor-4",
+      "name": "第四层",
+      "elevation_m": 3.72,
+      "walkable": [
+        {
+          "id": "floor-4-room-w",
+          "outer": [
+            [
+              4.82,
+              0.55
+            ],
+            [
+              9.32,
+              0.55
+            ],
+            [
+              9.32,
+              2.7
+            ],
+            [
+              4.82,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-4-room-e",
+          "outer": [
+            [
+              9.68,
+              0.55
+            ],
+            [
+              14.15,
+              0.55
+            ],
+            [
+              14.15,
+              2.7
+            ],
+            [
+              9.68,
+              2.7
+            ]
+          ],
+          "holes": []
+        },
+        {
+          "id": "floor-4-main",
+          "outer": [
+            [
+              2.35,
+              1.75
+            ],
+            [
+              4.78,
+              1.75
+            ],
+            [
+              4.78,
+              2.7
+            ],
+            [
+              14.15,
+              2.7
+            ],
+            [
+              14.15,
+              4.28
+            ],
+            [
+              2.35,
+              4.28
+            ]
+          ],
+          "holes": []
+        }
+      ],
+      "spawn_zones": [
+        {
+          "id": "floor-4-spawn-w",
+          "outer": [
+            [
+              5.3,
+              0.9
+            ],
+            [
+              8.6,
+              0.9
+            ],
+            [
+              8.6,
+              2.2
+            ],
+            [
+              5.3,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-4-spawn-e",
+          "outer": [
+            [
+              10.2,
+              0.9
+            ],
+            [
+              13.4,
+              0.9
+            ],
+            [
+              13.4,
+              2.2
+            ],
+            [
+              10.2,
+              2.2
+            ]
+          ]
+        },
+        {
+          "id": "floor-4-spawn-hall",
+          "outer": [
+            [
+              6.2,
+              3.2
+            ],
+            [
+              12.4,
+              3.2
+            ],
+            [
+              12.4,
+              4
+            ],
+            [
+              6.2,
+              4
             ]
           ]
         }
@@ -604,6 +750,66 @@
         [
           2.78,
           2.52,
+          2.72
+        ]
+      ],
+      "width_m": 1.2,
+      "speed_factor": 0.85,
+      "capacity": 6
+    },
+    {
+      "id": "stairs-3",
+      "from_floor": "floor-3",
+      "to_floor": "floor-4",
+      "bottom": [
+        3.98,
+        2.52,
+        2.7
+      ],
+      "top": [
+        2.78,
+        3.72,
+        2.72
+      ],
+      "path": [
+        [
+          3.98,
+          2.52,
+          2.7
+        ],
+        [
+          3.98,
+          2.74,
+          2.46
+        ],
+        [
+          3.98,
+          2.9,
+          2.2
+        ],
+        [
+          3.98,
+          3.05,
+          1.98
+        ],
+        [
+          3.2,
+          3.12,
+          1.3
+        ],
+        [
+          2.78,
+          3.34,
+          2.1
+        ],
+        [
+          2.78,
+          3.5700000000000003,
+          2.5
+        ],
+        [
+          2.78,
+          3.7199999999999998,
           2.72
         ]
       ],
@@ -939,16 +1145,121 @@
       "visual": {
         "node_pattern": "door"
       }
+    },
+    {
+      "id": "door-floor-4-room-w1",
+      "name": "四层西侧教室西门",
+      "floor": "floor-4",
+      "position": [
+        5.13,
+        3.72,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-4-room-w",
+      "to_region": "floor-4-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-4-room-w2",
+      "name": "四层西侧教室东门",
+      "floor": "floor-4",
+      "position": [
+        9.02,
+        3.72,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-4-room-w",
+      "to_region": "floor-4-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-4-room-e1",
+      "name": "四层东侧教室西门",
+      "floor": "floor-4",
+      "position": [
+        9.93,
+        3.72,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-4-room-e",
+      "to_region": "floor-4-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
+    },
+    {
+      "id": "door-floor-4-room-e2",
+      "name": "四层东侧教室东门",
+      "floor": "floor-4",
+      "position": [
+        13.87,
+        3.72,
+        2.7
+      ],
+      "width_m": 0.46,
+      "normal": [
+        0,
+        1
+      ],
+      "from_region": "floor-4-room-e",
+      "to_region": "floor-4-main",
+      "mode": "both",
+      "initial_state": "closed",
+      "locked": false,
+      "fire_block_threshold": 0.85,
+      "auto_close_s": 4,
+      "open_duration_s": 0.6,
+      "visual": {
+        "node_pattern": "door"
+      }
     }
   ],
   "navigation_review": {
     "status": "needs-review",
     "model_sha256": "fdc065dfd4ea60bb706cccdeee259afa0998b72673db04646ba96c1b28abec81",
-    "message": "已按模型三角面重标走廊、两间教室、四扇门、左侧折返楼梯和一层北侧出口。尺度仍是临时比例，左右两侧窄井未纳入可走区。",
+    "message": "自动校准草稿：新增第四层标准层模板，复用三层教室/走廊/门布局，第三层到第四层楼梯按模型层高 1.20 m 生成。",
     "issues": [
-      "没有真实长度测量，scale.status 保持 provisional。",
-      "教室门洞实测宽度约 0.46 模型单位，碰撞半径已收到 0.15 才能通过，不代表真实肩宽。",
-      "西侧竖井开口窄于 0.40，东侧楼梯间尚未逐踏面闭合，这两处没有编进可走区。"
+      "第四层自动识别标高为 3.7215 m，保存值取 3.72 m。",
+      "第四层走廊已改为与教室仅共享边界、无正面积重叠的 L 形区域。",
+      "楼梯 stairs-3 与门均沿用模型中的重复结构，正式实验前仍需现场复核门宽和踏步。",
+      "真实比例仍为 provisional，不能作为正式米制数据。"
     ]
   }
 }

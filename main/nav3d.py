@@ -1559,12 +1559,14 @@ class EvacSim3D:
             options.append((stair, forward))
         if not options:
             return None
+        wanted = self._human_route_connector(agent)
+        if wanted:
+            # A shared switchback landing can put the wrong flight within the
+            # capture radius.  Follow the flight on the current exit route;
+            # otherwise let the player keep approaching the correct one.
+            return next((o for o in options if o[0]["id"] == wanted), None)
         if len(options) == 1:
             return options[0]
-        wanted = self._human_route_connector(agent)
-        selected = next((o for o in options if o[0]["id"] == wanted), None)
-        if selected:
-            return selected
         elevations = {f["id"]: f["elevation_m"] for f in self.scene["floors"]}
         return min(options, key=lambda o: elevations[
             o[0]["to_floor"] if o[1] else o[0]["from_floor"]])
@@ -1898,12 +1900,23 @@ class EvacSim3D:
                         else:
                             agent.path.clear(); agent.state = "trapped"; continue
                     else:
+                        previous_region_id = agent.region_id
                         region = self._region_for(candidate, agent.floor_id)
                         current_region = self._region_index.get(agent.region_id)
                         if region:
                             agent.position = candidate
                             agent.region_id = region["id"]
                             agent.nav_node = self._nearest_nav_node(region["id"], candidate)
+                            if agent.region_id != previous_region_id and agent.path:
+                                target_region, _, connector_id = agent.path[0]
+                                connector_door = self._door_by_id(connector_id) if connector_id else None
+                                crossing = connector_door is not None and {
+                                    connector_door.get("from_region"),
+                                    connector_door.get("to_region"),
+                                } == {agent.region_id, target_region}
+                                if target_region != agent.region_id and not crossing:
+                                    agent.path.clear()
+                                    continue
                         else:
                             # Slide along the wall instead of freezing: the body
                             # keeps its tangent speed so a crowd pressed against a
