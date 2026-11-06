@@ -413,9 +413,49 @@ def triangulate_region(outer: Sequence[Vec2], holes: Sequence[Sequence[Vec2]]) -
     wholly walkable.  Navigation is hidden, so this conservative subdivision
     favors safety (never crossing a hole) over a minimal triangle count.
     """
-    seeds = triangulate_ring(outer)
     if not holes:
-        return seeds
+        return triangulate_ring(outer)
+    if len(outer) > 200:
+        # High-resolution auto-calibrated floors can contain hundreds of
+        # boundary vertices. Recursively clipping every ear against every
+        # obstacle edge is prohibitively expensive. A bounded uniform grid
+        # keeps hidden navigation conservative while point_in_region remains
+        # the authoritative collision test for moving people.
+        min_x = min(p[0] for p in outer); max_x = max(p[0] for p in outer)
+        min_z = min(p[1] for p in outer); max_z = max(p[1] for p in outer)
+        area = max(1e-6, (max_x - min_x) * (max_z - min_z))
+        cell = max(.25, math.sqrt(area / 180000))
+        hole_boxes = [(min(p[0] for p in h), min(p[1] for p in h),
+                       max(p[0] for p in h), max(p[1] for p in h)) for h in holes]
+        triangles = []
+        z = min_z
+        while z < max_z:
+            z2 = min(max_z, z + cell)
+            x = min_x
+            while x < max_x:
+                x2 = min(max_x, x + cell)
+                points = [(x, z), (x2, z), (x2, z2), (x, z2)]
+                center = ((x + x2) / 2, (z + z2) / 2)
+                clear = all(point_in_ring(p, outer) for p in points + [center])
+                clear = clear and not any(point_in_ring(p, h) for p in points + [center]
+                                          for h in holes)
+                clear = clear and not any(
+                    x <= hx2 and x2 >= hx1 and z <= hz2 and z2 >= hz1
+                    for hx1, hz1, hx2, hz2 in hole_boxes)
+                if clear:
+                    # Check every triangle centroid too; the quad can straddle
+                    # a thin outer boundary notch even when its corners do not.
+                    first = [points[0], points[1], points[2]]
+                    second = [points[0], points[2], points[3]]
+                    if all(point_in_region(((t[0][0] + t[1][0] + t[2][0]) / 3,
+                                            (t[0][1] + t[1][1] + t[2][1]) / 3),
+                                           {"outer": outer, "holes": holes})
+                           for t in (first, second)):
+                        triangles.extend([first, second])
+                x = x2
+            z = z2
+        return triangles
+    seeds = triangulate_ring(outer)
     result: List[List[Vec2]] = []
     stack = [(tri, 0) for tri in seeds]
     max_depth = 7

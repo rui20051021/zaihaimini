@@ -56,7 +56,7 @@
   <div id="autoDiagnostics" class="auto-diagnostics" hidden></div>
    <div id="autoCandidateList" class="auto-candidate-list"></div>
   <div class="auto-analysis-actions"><button id="applyAutoCandidates" type="button" class="primary" disabled data-lucide="check-check">应用已接受候选</button><button id="clearAutoCandidates" type="button" disabled data-lucide="rotate-ccw">清除候选</button></div>
-  <p class="auto-draft-notice">自动结果仅进入浏览器草稿，门、出口、楼梯和消防语义仍需人工复核。</p>
+  <p class="auto-draft-notice">自动结果仅进入浏览器草稿；替换会重建可走范围，并保留、重新关联起始区、门、楼梯和出口。消防语义仍需人工复核。</p>
  </div>
  <section class="sheet-section" data-step="model">
   <p class="measure-help">载入单文件 GLB，建立模型与通路之间的联系。</p>
@@ -122,7 +122,7 @@ import {RenderBudget} from '/static/utils/render-performance.mjs?v=20261022';
 import {mergeGeometries} from '/static/utils/BufferGeometryUtils.js?v=20261026a';
 import {disposeModel} from '/static/utils/participant-motion.mjs?v=20261016';
 import {collectWorldGeometry, analyzeInWorker} from '/static/utils/auto-calibrate.mjs?v=20261104a';
-import {createAutoApplyPlan,applyAutoApplyPlan,syncFloorDependentHeights,listEmptyWalkableFloors,AUTO_MATCH_TOLERANCE_M} from '/static/utils/auto-apply-plan.mjs?v=20261105a';
+import {createAutoApplyPlan,applyAutoApplyPlan,syncFloorDependentHeights,listEmptyWalkableFloors,AUTO_MATCH_TOLERANCE_M} from '/static/utils/auto-apply-plan.mjs?v=20261106a';
 initSpatialUI('calibration'); import {GLTFLoader} from '/static/vendor/GLTFLoader.js'; import {MeshoptDecoder} from '/static/vendor/meshopt_decoder.module.js';
 function escapeHtml(value){return String(value??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}
 const $=s=>document.querySelector(s), canvas=$('#view'), params=new URLSearchParams(location.search); let sceneId=params.get('scene')||'school', draft=null, root=null, model=null, mode='orbit', activeFloorId=null, drawingFloorId=null, points=[], measurePoints=[], stairPath=[], raycaster=new THREE.Raycaster(), pointer=new THREE.Vector2(); let token=localStorage.getItem('maze_admin_token')||'';let navPreview=null, smokePreview=null, selected=null, savedSnapshot='', serverBaseline=null, draftKey='', dirty=false, restoringDraft=false, autosaveTimer=0, undoStack=[], lastAutosaveAt=0, webModelMode=true, holeRegionId=null, stairPathMode='straight', autoAnalysis=null, autoAnalysisGeneration=0, autoCandidates=null, autoExclusions=null, autoDiagnostics=null, navigationPreflightState=null, cutawayFocusY=null, focusedAutoExclusionKey=null;
@@ -224,7 +224,11 @@ function autoFloorForMatch(match,plan=currentAutoApplyPlan(),targetDraft=draft){
 function autoReplacementImpact(candidate,plan=currentAutoApplyPlan()){const floor=autoFloorForMatch(autoMatchFor(candidate,plan),plan);if(!floor)return null;const record=plan.matches.find(match=>match.candidateIndex===autoCandidates.indexOf(candidate));return {floor,regions:(floor.walkable||[]).length,spawns:(floor.spawn_zones||[]).length,doors:(draft?.doors||[]).filter(door=>door.floor===floor.id).length,exits:(draft?.exits||[]).filter(exit=>exit.floor===floor.id).length,stairs:(draft?.stairs||[]).filter(stair=>stair.from_floor===floor.id||stair.to_floor===floor.id).length,contested:Boolean(record?.contested),nearestFloorName:record?.nearestFloorName||null,elevationDifference:record?.elevationDifference??null}}
 function autoReplacementImpactText(impact){
  if(!impact)return '';
- return `${impact.regions} 个可走区、${impact.spawns} 个起始区、${impact.doors} 个门、${impact.exits} 个出口、${impact.stairs} 条关联楼梯`;
+ return `${impact.regions} 个可走区`;
+}
+function autoRetentionImpactText(impact){
+ if(!impact)return '';
+ return `${impact.spawns} 个起始区、${impact.doors} 个门、${impact.exits} 个出口、${impact.stairs} 条关联楼梯`;
 }
 function autoAuditEvidence(candidate){
  const source=candidate?.originalExclusion&&typeof candidate.originalExclusion==='object'?candidate.originalExclusion:candidate||{};
@@ -250,7 +254,7 @@ function autoMatchHint(candidate,plan=currentAutoApplyPlan()){
  }
  if(!match||!match.floorId)return '<div class="auto-match-hint is-new">未匹配现有楼层；应用后会新增楼层及其可走区。</div>';
  const delta=Number.isFinite(match.elevationDifference)?`标高差 ${match.elevationDifference.toFixed(3)} m。`:'';
- return `<div class="auto-match-hint is-matched"><strong>匹配现有楼层</strong><span>将更新 ${escapeHtml(impact.floor.name||impact.floor.id)}（${Number(impact.floor.elevation_m).toFixed(2)} m）。${delta}未勾选替换时，现有标注保持不变；勾选替换会移除该层的 ${autoReplacementImpactText(impact)}。</span></div>`;
+ return `<div class="auto-match-hint is-matched"><strong>匹配现有楼层</strong><span>将更新 ${escapeHtml(impact.floor.name||impact.floor.id)}（${Number(impact.floor.elevation_m).toFixed(2)} m）。${delta}未勾选替换时，现有标注保持不变；勾选替换会按自动轮廓重建该层 ${autoReplacementImpactText(impact)}，并保留、重新关联 ${autoRetentionImpactText(impact)}。</span></div>`;
 }
 function autoWarningList(warnings,className='auto-region-warnings'){
  const messages=(Array.isArray(warnings)?warnings:[]).filter(message=>message!=null&&String(message).trim());
@@ -411,7 +415,7 @@ function refreshAutoCandidatePreview(){
    ${autoFloorDiagnostics(floor)}
    ${autoMatchHint(floor,plan)}
    ${floor.restoredFromExclusion?autoAuditEvidence(floor):''}
-   ${impact&&regions.some(region=>region.accepted)?`<label class="auto-replace-option"><input type="checkbox" data-auto-replace="${floorIndex}" ${floor.replaceExisting?'checked':''}><span>替换该层现有可走区</span></label><p class="auto-replace-impact" ${floor.replaceExisting?'':'hidden'}>将删除 ${autoReplacementImpactText(impact)}，再写入已接受的自动区域。应用时会再次确认，可撤销。</p>`:''}
+   ${impact&&regions.some(region=>region.accepted)?`<label class="auto-replace-option"><input type="checkbox" data-auto-replace="${floorIndex}" ${floor.replaceExisting?'checked':''}><span>替换可走范围并保留标注</span></label><p class="auto-replace-impact" ${floor.replaceExisting?'':'hidden'}>将重建该层 ${autoReplacementImpactText(impact)}；保留并重新关联 ${autoRetentionImpactText(impact)}。应用时会再次确认，可撤销。</p>`:''}
    <div class="auto-candidate-regions">${regions.length?regions.map((region,regionIndex)=>`<div class="auto-candidate-region"><label><input type="checkbox" data-auto-region="${floorIndex}:${regionIndex}" ${region.accepted?'checked':''}><span class="auto-select-box" aria-hidden="true">${icon('check')}</span><span>区域 ${regionIndex+1} · ${Number(region.area_m2||0).toFixed(1)} m² · 最小宽度 ${autoWidthLabel(region.min_width_m)}</span></label><em style="color:${autoCandidateColor(region.confidence)}">${region.confidence==='high'?'高':region.confidence==='medium'?'中':'低'}</em>${autoRegionDiagnostics(region)}</div>`).join(''):'<span class="auto-no-region">没有提取到有效可走区。需要人工空白楼层时，显式勾选上方楼层后应用。</span>'}</div>
   </article>`;
  }).join(''):'<div class="auto-empty">已排除项审计如下。恢复后才生成普通楼层候选，仍需人工确认。</div>'}`;
@@ -428,7 +432,7 @@ function refreshAutoCandidatePreview(){
   const index=Number(event.target.dataset.autoReplace),floor=autoCandidates[index];if(!floor)return;
   if(event.target.checked){
    const impact=autoReplacementImpact(floor),detail=autoReplacementImpactText(impact);
-   const confirmed=window.confirm(`替换 ${impact.floor.name||impact.floor.id} 的现有标注？\n\n将删除：${detail}。\n然后写入已接受的自动可走区。\n\n此操作会进入浏览器草稿，可用“撤销上一步”恢复；不会直接覆盖服务器正式场景。`);
+   const confirmed=window.confirm(`替换 ${impact.floor.name||impact.floor.id} 的可走范围？\n\n将重建：${detail}。\n将保留并重新关联：${autoRetentionImpactText(impact)}。\n\n此操作会进入浏览器草稿，可用“撤销上一步”恢复；不会删除实验标注，也不会直接覆盖服务器正式场景。`);
    if(!confirmed){event.target.checked=false;floor.replaceExisting=false;refreshAutoCandidatePreview();setStatus('已取消替换，现有标注保持不变','warn');return}
   }
   floor.replaceExisting=event.target.checked;refreshAutoCandidatePreview();
@@ -1654,8 +1658,8 @@ function applyAutoCandidates(){
 
  const replacements=plan.operations.filter(operation=>operation.kind==='replace').map(operation=>({operation,impact:autoReplacementImpact(autoCandidates[operation.candidateIndex],plan)})).filter(item=>item.impact&&item.impact.regions);
  if(replacements.length){
-  const lines=replacements.map(({impact})=>`${impact.floor.name||impact.floor.id}：${autoReplacementImpactText(impact)}`).join('\n');
-  if(!window.confirm(`应用后将从浏览器草稿中替换以下现有标注：\n\n${lines}\n\n未勾选替换的楼层会保持不变。此操作可撤销，但不会自动恢复人工核对与导航预览。`)){setStatus('已取消应用，草稿未修改','warn');return}
+  const lines=replacements.map(({impact})=>`${impact.floor.name||impact.floor.id}：重建 ${autoReplacementImpactText(impact)}；保留并重新关联 ${autoRetentionImpactText(impact)}`).join('\n');
+  if(!window.confirm(`应用后将重建以下楼层的可走范围，并保留全部标注：\n\n${lines}\n\n起始区、门、楼梯和出口会按新区域重新关联；未勾选替换的楼层保持不变。此操作可撤销，但不会自动恢复人工核对与导航预览。`)){setStatus('已取消应用，草稿未修改','warn');return}
  }
  const restoredRisks=acceptedFloors.filter(candidate=>candidate.restoredFromExclusion);
  if(restoredRisks.length){
@@ -1683,7 +1687,7 @@ function applyAutoCandidates(){
  const preflight=navigationPreflightState||result.navigationPreflight;
  const unreachable=(preflight?.unreachableRegions||[]).filter(region=>region.source==='auto');
  const unreachableText=unreachable.length?`${unreachable.length} 个自动区域尚不能到达出口`:(navigationPreflightDerivedStatus(preflight)==='failed'?'连通性预检未通过':'');
- const summary=[`新增 ${result.addedFloors} 个楼层`,`写入 ${result.addedRegions} 个可走区`,result.updatedFloors?`更新 ${result.updatedFloors} 个楼层标高`:'',result.replacedFloors?`替换 ${result.replacedFloors} 个楼层的标注`:'',unreachableText,skipped].filter(Boolean).join('；');
+ const summary=[`新增 ${result.addedFloors} 个楼层`,`写入 ${result.addedRegions} 个可走区`,result.updatedFloors?`更新 ${result.updatedFloors} 个楼层标高`:'',result.replacedFloors?`重建 ${result.replacedFloors} 个楼层的可走范围并保留标注`:'',unreachableText,skipped].filter(Boolean).join('；');
  const preflightLines=[...(preflight?.errors||[]),...(preflight?.warnings||[])].filter(Boolean);
  const emptyText=empty.length?`空楼层：${emptyNames.join('、')} 仍没有可走区，必须绘制后才能保存。`:'';
  if(preflightLines.length||emptyText){

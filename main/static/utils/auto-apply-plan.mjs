@@ -1,3 +1,5 @@
+import polygonClipping from '../vendor/polygon-clipping.esm.min.js';
+
 export const AUTO_MATCH_TOLERANCE_M = 0.25;
 
 const EPSILON = 1e-9;
@@ -287,6 +289,262 @@ function regionsHavePositiveAreaOverlap2D(left, right) {
     if (edgeEntersRegion2D(right.outer[index], right.outer[(index + 1) % right.outer.length], left)) return true;
   }
   return false;
+}
+
+
+const REPLACEMENT_COORDINATE_SCALE = 10000;
+const REPLACEMENT_MIN_HOLE_AREA_M2 = 0.5;
+const REPLACEMENT_DOOR_SAMPLE_M = 0.15;
+const REPLACEMENT_HEIGHT_TOLERANCE_M = 0.02;
+
+function ringArea2D(ring) {
+  return Math.abs(ring.reduce((sum, point, index) => {
+    const next = ring[(index + 1) % ring.length];
+    return sum + point[0] * next[1] - next[0] * point[1];
+  }, 0)) * 0.5;
+}
+
+function tidyClippedRing(raw, label) {
+  if (!Array.isArray(raw)) throw new Error(label + '不是点数组');
+  const rounded = raw.map((point, index) => {
+    if (!Array.isArray(point) || point.length < 2) throw new Error(label + '第 ' + (index + 1) + ' 个点格式无效');
+    const x = finiteNumber(point[0]);
+    const z = finiteNumber(point[1]);
+    if (x == null || z == null) throw new Error(label + '第 ' + (index + 1) + ' 个点包含非有限坐标');
+    return [
+      Math.round(x * REPLACEMENT_COORDINATE_SCALE) / REPLACEMENT_COORDINATE_SCALE,
+      Math.round(z * REPLACEMENT_COORDINATE_SCALE) / REPLACEMENT_COORDINATE_SCALE,
+    ];
+  });
+  const points = [];
+  for (const point of rounded) {
+    const previous = points[points.length - 1];
+    if (previous && previous[0] === point[0] && previous[1] === point[1]) continue;
+    points.push(point);
+  }
+  while (points.length > 3
+    && points[0][0] === points[points.length - 1][0]
+    && points[0][1] === points[points.length - 1][1]) points.pop();
+  if (points.length < 3) throw new Error(label + '至少需要三个不同边界点');
+  return points;
+}
+
+function rawRingForClipping(raw, label) {
+  const ring = tidyClippedRing(raw, label);
+  if (ringArea2D(ring) <= 1e-8) throw new Error(label + '面积无效');
+  return ring;
+}
+
+function geometryArea(geometry) {
+  if (!Array.isArray(geometry)) return 0;
+  return geometry.reduce((sum, polygon) => {
+    if (!Array.isArray(polygon) || !polygon.length) return sum;
+    const outer = Math.abs(polygonAreaSigned2D(polygon[0]));
+    const holes = polygon.slice(1).reduce((value, ring) => value + Math.abs(polygonAreaSigned2D(ring)), 0);
+    return sum + Math.max(0, outer - holes);
+  }, 0);
+}
+
+function polygonAreaSigned2D(ring) {
+  return ring.reduce((sum, point, index) => {
+    const next = ring[(index + 1) % ring.length];
+    return sum + point[0] * next[1] - next[0] * point[1];
+  }, 0) * 0.5;
+}
+
+function regionToClippingGeometry(region) {
+  const outer = normalizeRing(region?.outer, '区域 ' + String(region?.id ?? '') + '外轮廓');
+  const holes = (Array.isArray(region?.holes) ? region.holes : [])
+    .map((hole, index) => normalizeRing(hole, '区域 ' + String(region?.id ?? '') + '孔洞 ' + (index + 1)));
+  return [[outer, ...holes]];
+}
+
+function repairReplacementRegion(region, label) {
+  const outer = rawRingForClipping(region?.outer, label + '外轮廓');
+  let geometry = polygonClipping.union([[outer]]);
+  const holes = Array.isArray(region?.holes) ? region.holes : [];
+  for (let index = 0; index < holes.length; index += 1) {
+    const hole = rawRingForClipping(holes[index], label + '孔洞 ' + (index + 1));
+    if (ringArea2D(hole) < REPLACEMENT_MIN_HOLE_AREA_M2) continue;
+    const holeGeometry = polygonClipping.union([[hole]]);
+    if (holeGeometry.length && geometry.length) geometry = polygonClipping.difference(geometry, holeGeometry);
+  }
+  return geometry;
+}
+
+function unionClippingGeometries(geometries) {
+  return geometries.reduce((merged, geometry) => {
+    if (!geometry?.length) return merged;
+    return merged.length ? polygonClipping.union(merged, geometry) : geometry;
+  }, []);
+}
+
+function clippedPolygonToRegion(polygon, template, id) {
+  const label = '区域 ' + id;
+  const outer = tidyClippedRing(polygon?.[0], label + '外轮廓');
+  const holes = (Array.isArray(polygon) ? polygon.slice(1) : [])
+    .map((hole, index) => tidyClippedRing(hole, label + '孔洞 ' + (index + 1)))
+    .filter((hole) => ringArea2D(hole) >= REPLACEMENT_MIN_HOLE_AREA_M2);
+  const normalized = normalizeAutoRegion({ outer, holes }, id, label);
+  return { ...clone(template), id, outer: normalized.outer, holes: normalized.holes };
+}
+
+function addReplacementParts(geometry, template, output, prefix) {
+  const polygons = (Array.isArray(geometry) ? geometry : [])
+    .filter((polygon) => Array.isArray(polygon) && polygon.length)
+    .sort((left, right) => geometryArea([right]) - geometryArea([left]));
+  if (!polygons.length) return 0;
+  for (let index = 0; index < polygons.length; index += 1) {
+    const id = index === 0 ? template.id : template.id + '-part-' + (index + 1);
+    output.push(clippedPolygonToRegion(polygons[index], template, id));
+  }
+  return polygons.length;
+}
+
+function rebuildReplacementFloor(floor, operation) {
+  const candidates = (Array.isArray(operation?.regions) ? operation.regions : [])
+    .map((region, index) => repairReplacementRegion(region, '候选 ' + String(operation?.candidateId || '') + ' 区域 ' + (index + 1)));
+  const autoGeometry = unionClippingGeometries(candidates);
+  if (!autoGeometry.length) throw new Error('自动替换轮廓为空，现有草稿未修改');
+
+  const originals = (Array.isArray(floor.walkable) ? floor.walkable : [])
+    .map((region) => normalizeAutoRegion(region, String(region?.id ?? '').trim(), '原区域 ' + String(region?.id ?? '')))
+    .map((region, index) => ({ ...clone(floor.walkable[index]), ...region }));
+  if (!originals.length) throw new Error('楼层 ' + floorIdOf(floor) + ' 没有可保留的原区域 ID');
+  const main = originals.find((region) => /-main$/.test(String(region.id))) || null;
+  const output = [];
+  let remaining = autoGeometry;
+
+  for (const original of originals) {
+    if (main && original.id === main.id) continue;
+    const originalGeometry = regionToClippingGeometry(original);
+    const part = remaining.length ? polygonClipping.intersection(remaining, originalGeometry) : [];
+    if (!part.length) throw new Error('原区域 ' + original.id + ' 在新的自动轮廓内没有有效面积，无法保留区域 ID');
+    addReplacementParts(part, original, output, 'room');
+    remaining = remaining.length ? polygonClipping.difference(remaining, originalGeometry) : [];
+  }
+
+  if (!main) throw new Error('楼层 ' + floorIdOf(floor) + ' 缺少主区域（ID 应以 -main 结尾），无法保留主区域 ID');
+  if (remaining.length) addReplacementParts(remaining, main, output, 'main');
+  for (const original of originals) {
+    if (!output.some((region) => region.id === original.id || region.id.startsWith(original.id + '-part-'))) {
+      throw new Error('原区域 ' + original.id + ' 未能保留，现有草稿未修改');
+    }
+  }
+  const ids = new Set();
+  for (const region of output) {
+    if (ids.has(region.id)) throw new Error('自动替换产生了重复区域 ID ' + region.id);
+    ids.add(region.id);
+  }
+  return output;
+}
+
+function point2DFrom3D(position) {
+  if (!Array.isArray(position) || position.length < 3) return null;
+  const x = finiteNumber(position[0]);
+  const z = finiteNumber(position[2]);
+  return x == null || z == null ? null : [x, z];
+}
+
+function regionsContainingPoint(floor, point) {
+  return (Array.isArray(floor?.walkable) ? floor.walkable : [])
+    .filter((region) => regionContainsPoint2D(region, point))
+    .map((region) => region);
+}
+
+function resolveUniqueRegion(floor, point, label) {
+  if (!point) throw new Error(label + '缺少有效的平面位置');
+  const regions = regionsContainingPoint(floor, point);
+  if (regions.length !== 1) {
+    throw new Error(label + '必须唯一落在同一可走区内，实际匹配到 ' + regions.length + ' 个区域');
+  }
+  return String(regions[0].id);
+}
+
+function doorNormal2D(door) {
+  const normal = Array.isArray(door?.normal) ? door.normal : [];
+  const x = finiteNumber(normal[0]);
+  const z = normal.length >= 3 ? finiteNumber(normal[2]) : finiteNumber(normal[1]);
+  if (x == null || z == null || Math.hypot(x, z) <= EPSILON) throw new Error('门 ' + String(door?.id ?? '') + ' 缺少有效法线');
+  const length = Math.hypot(x, z);
+  return [x / length, z / length];
+}
+
+function assertFloorHeight(position, floor, label) {
+  const y = finiteNumber(position?.[1]);
+  const elevation = finiteNumber(floor?.elevation_m);
+  if (y == null || elevation == null || Math.abs(y - elevation) > REPLACEMENT_HEIGHT_TOLERANCE_M) {
+    throw new Error(label + '的端点高度与楼层 ' + floorIdOf(floor) + ' 不一致');
+  }
+}
+
+function spawnInsideSingleRegion(floor, zone) {
+  const zoneGeometry = repairReplacementRegion({ outer: zone?.outer, holes: zone?.holes || [] }, '起始区 ' + String(zone?.id ?? ''));
+  if (!zoneGeometry.length) throw new Error('起始区 ' + String(zone?.id ?? '') + ' 轮廓为空');
+  const matches = [];
+  for (const region of Array.isArray(floor.walkable) ? floor.walkable : []) {
+    const remainder = polygonClipping.difference(zoneGeometry, regionToClippingGeometry(region));
+    if (!remainder.length || geometryArea(remainder) <= 1e-7) matches.push(region);
+  }
+  if (matches.length !== 1) {
+    throw new Error('起始区 ' + String(zone?.id ?? '') + ' 必须完整位于同一可走区内，实际匹配到 ' + matches.length + ' 个区域');
+  }
+  return String(matches[0].id);
+}
+
+function migrateReplacementAnnotations(draft, replacementFloorIds) {
+  const counts = { regions: 0, spawnZones: 0, doors: 0, stairs: 0, exits: 0 };
+  const floorById = new Map(draft.floors.map((floor) => [floorIdOf(floor), floor]));
+  for (const floorId of replacementFloorIds) {
+    const floor = floorById.get(floorId);
+    if (!floor) throw new Error('替换楼层 ' + floorId + ' 不存在');
+    counts.regions += Array.isArray(floor.walkable) ? floor.walkable.length : 0;
+    for (const zone of Array.isArray(floor.spawn_zones) ? floor.spawn_zones : []) {
+      zone.region = spawnInsideSingleRegion(floor, zone);
+      counts.spawnZones += 1;
+    }
+  }
+
+  for (const door of Array.isArray(draft.doors) ? draft.doors : []) {
+    const floorId = String(door?.floor ?? '');
+    if (!replacementFloorIds.has(floorId)) continue;
+    const floor = floorById.get(floorId);
+    const point = point2DFrom3D(door.position);
+    const normal = doorNormal2D(door);
+    if (!point) throw new Error('门 ' + String(door.id ?? '') + ' 缺少有效位置');
+    const positive = resolveUniqueRegion(floor, [point[0] + normal[0] * REPLACEMENT_DOOR_SAMPLE_M, point[1] + normal[1] * REPLACEMENT_DOOR_SAMPLE_M], '门 ' + String(door.id ?? '') + ' 正侧');
+    const negative = resolveUniqueRegion(floor, [point[0] - normal[0] * REPLACEMENT_DOOR_SAMPLE_M, point[1] - normal[1] * REPLACEMENT_DOOR_SAMPLE_M], '门 ' + String(door.id ?? '') + ' 负侧');
+    if (positive === negative) throw new Error('门 ' + String(door.id ?? '') + ' 两侧落在同一可走区 ' + positive);
+    door.from_region = negative;
+    door.to_region = positive;
+    counts.doors += 1;
+  }
+
+  for (const exit of Array.isArray(draft.exits) ? draft.exits : []) {
+    const floorId = String(exit?.floor ?? '');
+    if (!replacementFloorIds.has(floorId)) continue;
+    const floor = floorById.get(floorId);
+    assertFloorHeight(exit.position, floor, '出口 ' + String(exit.id ?? ''));
+    exit.region = resolveUniqueRegion(floor, point2DFrom3D(exit.position), '出口 ' + String(exit.id ?? ''));
+    counts.exits += 1;
+  }
+
+  for (const stair of Array.isArray(draft.stairs) ? draft.stairs : []) {
+    const fromFloorId = String(stair?.from_floor ?? '');
+    const toFloorId = String(stair?.to_floor ?? '');
+    if (!replacementFloorIds.has(fromFloorId) && !replacementFloorIds.has(toFloorId)) continue;
+    const fromFloor = floorById.get(fromFloorId);
+    const toFloor = floorById.get(toFloorId);
+    if (!fromFloor || !toFloor) throw new Error('楼梯 ' + String(stair.id ?? '') + ' 的楼层不存在');
+    const bottom = stair.bottom || stair.path?.[0];
+    const top = stair.top || stair.path?.[stair.path.length - 1];
+    assertFloorHeight(bottom, fromFloor, '楼梯 ' + String(stair.id ?? '') + ' 下端');
+    assertFloorHeight(top, toFloor, '楼梯 ' + String(stair.id ?? '') + ' 上端');
+    stair.from_region = resolveUniqueRegion(fromFloor, point2DFrom3D(bottom), '楼梯 ' + String(stair.id ?? '') + ' 下端');
+    stair.to_region = resolveUniqueRegion(toFloor, point2DFrom3D(top), '楼梯 ' + String(stair.id ?? '') + ' 上端');
+    counts.stairs += 1;
+  }
+  return counts;
 }
 
 function validateDraftStructure(draft) {
@@ -885,16 +1143,16 @@ export function inspectAutoApplyNavigation(draft, plan = null, options = {}) {
 }
 
 export function applyAutoApplyPlan(draft, plan) {
-  if (!draft || typeof draft !== 'object') throw new Error('缺少浏览器草稿');
-  if (!plan || typeof plan !== 'object' || !Array.isArray(plan.operations) || !Array.isArray(plan.matches)) {
-    throw new Error('自动应用计划无效');
+  if (!draft || typeof draft !== "object") throw new Error("缺少浏览器草稿");
+  if (!plan || typeof plan !== "object" || !Array.isArray(plan.operations) || !Array.isArray(plan.matches)) {
+    throw new Error("自动应用计划无效");
   }
   if (plan.sourceFingerprint !== JSON.stringify(draft)) {
-    throw new Error('生成自动应用计划后草稿已变化，请重新分析匹配');
+    throw new Error("生成自动应用计划后草稿已变化，请重新分析匹配");
   }
 
   const staged = clone(draft);
-  if (!Array.isArray(staged.floors)) throw new Error('草稿缺少楼层数组');
+  if (!Array.isArray(staged.floors)) throw new Error("草稿缺少楼层数组");
   staged.doors = Array.isArray(staged.doors) ? staged.doors : [];
   staged.exits = Array.isArray(staged.exits) ? staged.exits : [];
   staged.stairs = Array.isArray(staged.stairs) ? staged.stairs : [];
@@ -905,48 +1163,37 @@ export function applyAutoApplyPlan(draft, plan) {
 
   const replacementFloorIds = new Set(
     plan.operations
-      .filter((operation) => operation?.kind === 'replace')
-      .map((operation) => String(operation?.targetId ?? '').trim())
+      .filter((operation) => operation?.kind === "replace")
+      .map((operation) => String(operation?.targetId ?? "").trim())
       .filter(Boolean),
   );
-  if (replacementFloorIds.size) {
-    const blockedExits = staged.exits.filter((exit) => replacementFloorIds.has(String(exit?.floor ?? '')));
-    const blockedStairs = staged.stairs.filter((stair) => replacementFloorIds.has(String(stair?.from_floor ?? ''))
-      || replacementFloorIds.has(String(stair?.to_floor ?? '')));
-    if (blockedExits.length || blockedStairs.length) {
-      const floorLabels = staged.floors
-        .filter((floor) => replacementFloorIds.has(floorIdOf(floor)))
-        .map((floor) => floorDisplayName(floor));
-      const blockedParts = [];
-      if (blockedExits.length) blockedParts.push(`出口 ${blockedExits.map((exit) => String(exit?.id ?? '')).filter(Boolean).join('、')}`);
-      if (blockedStairs.length) blockedParts.push(`跨层楼梯 ${blockedStairs.map((stair) => String(stair?.id ?? '')).filter(Boolean).join('、')}`);
-      throw new Error(`自动替换已拒绝：${floorLabels.join('、')} 包含出口或跨层楼梯连接（${blockedParts.join('；')}）；请先手动迁移或删除这些连接，现有草稿未修改`);
-    }
+
+  // Rebuild every replacement floor before touching annotations. Any clipping
+  // failure aborts this whole function while the caller's draft stays intact.
+  for (const operation of plan.operations) {
+    if (operation?.kind !== "replace") continue;
+    const targetId = String(operation.targetId ?? "").trim();
+    const floor = staged.floors.find((item) => floorIdOf(item) === targetId);
+    if (!floor) throw new Error("未找到目标楼层 " + targetId);
+    floor.walkable = rebuildReplacementFloor(floor, operation);
   }
 
   for (const operation of plan.operations) {
     const elevation = finiteNumber(operation?.elevation);
-    if (elevation == null || Math.abs(elevation) > 1000) throw new Error('候选 ' + (operation?.candidateId || '') + ' 的标高无效');
+    if (elevation == null || Math.abs(elevation) > 1000) throw new Error("候选 " + (operation?.candidateId || "") + " 的标高无效");
     let floor;
-    if (operation.kind === 'create') {
-      const targetId = String(operation.targetId ?? '').trim();
-      if (!targetId) throw new Error('新楼层缺少 ID');
-      if (staged.floors.some((item) => floorIdOf(item) === targetId)) throw new Error('新楼层 ID ' + targetId + ' 已存在');
+    if (operation.kind === "create") {
+      const targetId = String(operation.targetId ?? "").trim();
+      if (!targetId) throw new Error("新楼层缺少 ID");
+      if (staged.floors.some((item) => floorIdOf(item) === targetId)) throw new Error("新楼层 ID " + targetId + " 已存在");
       floor = { id: targetId, name: String(operation.targetName || targetId), elevation_m: elevation, walkable: [], spawn_zones: [] };
       staged.floors.push(floor);
       addedFloors += 1;
-    } else if (operation.kind === 'update' || operation.kind === 'replace') {
-      const targetId = String(operation.targetId ?? '').trim();
+    } else if (operation.kind === "update" || operation.kind === "replace") {
+      const targetId = String(operation.targetId ?? "").trim();
       floor = staged.floors.find((item) => floorIdOf(item) === targetId);
-      if (!floor) throw new Error('未找到目标楼层 ' + targetId);
-      if (operation.kind === 'replace') {
-        floor.walkable = [];
-        floor.spawn_zones = [];
-        staged.doors = staged.doors.filter((door) => String(door?.floor ?? '') !== targetId);
-        staged.exits = staged.exits.filter((exit) => String(exit?.floor ?? '') !== targetId);
-        staged.stairs = staged.stairs.filter((stair) => String(stair?.from_floor ?? '') !== targetId && String(stair?.to_floor ?? '') !== targetId);
-        replacedFloors += 1;
-      }
+      if (!floor) throw new Error("未找到目标楼层 " + targetId);
+      if (operation.kind === "replace") replacedFloors += 1;
       const oldElevation = finiteNumber(floor.elevation_m);
       if (Math.abs(oldElevation - elevation) > EPSILON) {
         floor.elevation_m = elevation;
@@ -955,42 +1202,54 @@ export function applyAutoApplyPlan(draft, plan) {
           targetId,
           oldElevation,
           elevation,
-          (floor.name || targetId) + ' 的模型候选楼面标高为 ' + elevation.toFixed(2) + ' m，原标高为 ' + oldElevation.toFixed(2) + ' m；请对照模型复核现有标注。',
+          (floor.name || targetId) + " 的模型候选楼面标高为 " + elevation.toFixed(2) + " m，原标高为 " + oldElevation.toFixed(2) + " m；请对照模型复核现有标注。",
         );
         updatedFloors += 1;
       }
     } else {
-      throw new Error('未知自动应用操作 ' + String(operation.kind));
+      throw new Error("未知自动应用操作 " + String(operation.kind));
     }
 
     floor.walkable = Array.isArray(floor.walkable) ? floor.walkable : [];
     floor.spawn_zones = Array.isArray(floor.spawn_zones) ? floor.spawn_zones : [];
     const regions = Array.isArray(operation.regions) ? operation.regions : [];
     const regionIds = Array.isArray(operation.regionIds) ? operation.regionIds : [];
-    if (regions.length !== regionIds.length) throw new Error('楼层 ' + floor.id + ' 的自动区域 ID 数量不一致');
-    for (let index = 0; index < regions.length; index += 1) {
-      const regionId = String(regionIds[index] ?? '').trim();
-      if (!regionId) throw new Error('楼层 ' + floor.id + ' 包含缺失的自动区域 ID');
-      const normalized = normalizeAutoRegion(regions[index], regionId, '区域 ' + regionId);
-      const duplicateGeometry = floor.walkable.some((existing) => JSON.stringify(existing?.outer) === JSON.stringify(normalized.outer));
-      if (duplicateGeometry) continue;
-      floor.walkable.push(normalized);
-      addedRegions += 1;
+    if (regions.length !== regionIds.length) throw new Error("楼层 " + floor.id + " 的自动区域 ID 数量不一致");
+    if (operation.kind !== "replace") {
+      for (let index = 0; index < regions.length; index += 1) {
+        const regionId = String(regionIds[index] ?? "").trim();
+        if (!regionId) throw new Error("楼层 " + floor.id + " 包含缺失的自动区域 ID");
+        const normalized = normalizeAutoRegion(regions[index], regionId, "区域 " + regionId);
+        const duplicateGeometry = floor.walkable.some((existing) => JSON.stringify(existing?.outer) === JSON.stringify(normalized.outer));
+        if (duplicateGeometry) continue;
+        floor.walkable.push(normalized);
+        addedRegions += 1;
+      }
     }
   }
 
   staged.floors.sort((left, right) => Number(left.elevation_m) - Number(right.elevation_m));
+  const annotationMigration = migrateReplacementAnnotations(staged, replacementFloorIds);
   validateDraftStructure(staged);
   const changed = JSON.stringify(staged) !== plan.sourceFingerprint;
-  if (changed && plan.operations.some((operation) => operation.kind === 'replace')) {
-    applyAnnotationInvalidation(staged, '自动候选替换了部分楼层标注，请逐层复核门、出口、起始区与楼梯连接。');
-  }
-  const navigationPreflight = inspectAutoApplyNavigation(staged, plan);
-  if (changed && navigationPreflight.status !== 'passed' && staged.navigation_review?.status === 'reviewed') {
+  if (changed && replacementFloorIds.size) {
+    staged.annotation_recheck = {
+      ...(staged.annotation_recheck || {}),
+      status: "needs-recheck",
+      reason: "自动替换了可走范围，并保留、重新关联了原有标注，请复核门、楼梯、出口和起始区。",
+    };
     staged.navigation_review = {
       ...(staged.navigation_review || {}),
-      status: 'needs-review',
-      message: '自动候选应用后存在未连接区域或出口诊断，请补充门、楼梯并重新运行导航预览。',
+      status: "needs-review",
+      message: "可走范围已替换，需重新运行导航预览并复核全部标注。",
+    };
+  }
+  const navigationPreflight = inspectAutoApplyNavigation(staged, plan);
+  if (changed && navigationPreflight.status !== "passed" && staged.navigation_review?.status === "reviewed") {
+    staged.navigation_review = {
+      ...(staged.navigation_review || {}),
+      status: "needs-review",
+      message: "自动候选应用后存在未连接区域或出口诊断，请补充门、楼梯并重新运行导航预览。",
     };
   }
   navigationPreflight.draftFingerprint = JSON.stringify(staged);
@@ -1000,6 +1259,7 @@ export function applyAutoApplyPlan(draft, plan) {
     addedRegions,
     updatedFloors,
     replacedFloors,
+    annotationMigration,
     skippedExisting: Number(plan.skippedExisting) || 0,
     skippedNoRegion: Number(plan.skippedNoRegion) || 0,
     skippedCompetition: Number(plan.skippedCompetition) || 0,

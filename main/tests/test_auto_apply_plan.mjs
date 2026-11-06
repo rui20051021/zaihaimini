@@ -103,6 +103,57 @@ function run(name, callback) {
   }
 }
 
+function makeAnnotationDraft() {
+  const draft = {
+    schema: 2,
+    id: 'annotation-fixture',
+    floors: [],
+    doors: [],
+    exits: [{ id: 'exit-1', floor: 'floor-1', position: [2.5, 0.12, 1.5] }],
+    stairs: [
+      {
+        id: 'stair-1-2', from_floor: 'floor-1', to_floor: 'floor-2',
+        bottom: [2.5, 0.12, 1.5], top: [2.5, 1.32, 1.5],
+        path: [[2.5, 0.12, 1.5], [2.5, 0.72, 1.5], [2.5, 1.32, 1.5]],
+      },
+    ],
+    navigation_review: { status: 'reviewed', message: 'fixture reviewed' },
+    annotation_recheck: { status: 'reviewed' },
+    scale: { status: 'provisional' },
+  };
+  for (let number = 1; number <= 3; number += 1) {
+    const floorId = 'floor-' + number;
+    const elevation = [0.12, 1.32, 2.52][number - 1];
+    draft.floors.push({
+      id: floorId,
+      name: FLOOR_NAMES[number - 1],
+      elevation_m: elevation,
+      walkable: [
+        { id: floorId + '-room-w', name: '西教室', outer: ring(0, 0, 2, 1), holes: [] },
+        { id: floorId + '-room-e', name: '东教室', outer: ring(3, 0, 5, 1), holes: [] },
+        { id: floorId + '-main', name: '主区域', outer: ring(0, 1, 5, 2), holes: [] },
+      ],
+      spawn_zones: [
+        { id: floorId + '-spawn-w', outer: ring(0.2, 0.2, 1.8, 0.8) },
+        { id: floorId + '-spawn-e', outer: ring(3.2, 0.2, 4.8, 0.8) },
+        { id: floorId + '-spawn-hall', outer: ring(0.2, 1.2, 4.8, 1.8) },
+      ],
+    });
+    draft.doors.push(
+      { id: floorId + '-door-w', floor: floorId, position: [1, elevation, 1], normal: [0, 1], from_region: floorId + '-room-w', to_region: floorId + '-main' },
+      { id: floorId + '-door-e', floor: floorId, position: [4, elevation, 1], normal: [0, 1], from_region: floorId + '-room-e', to_region: floorId + '-main' },
+    );
+  }
+  draft.stairs.push({
+    id: 'stair-2-3', from_floor: 'floor-2', to_floor: 'floor-3',
+    bottom: [2.5, 1.32, 1.5], top: [2.5, 2.52, 1.5],
+    path: [[2.5, 1.32, 1.5], [2.5, 1.92, 1.5], [2.5, 2.52, 1.5]],
+  });
+  return draft;
+}
+
+const FLOOR_NAMES = ['一层', '二层', '三层'];
+
 run('竞争候选一对一匹配，同一楼层只分配给最接近的候选', () => {
   const draft = makeDraft();
   const candidates = [
@@ -122,15 +173,15 @@ run('竞争候选一对一匹配，同一楼层只分配给最接近的候选', 
 });
 
 run('已接受候选竞争同一现有楼层时，落选候选不会创建新楼层', () => {
-  const draft = makeDraft();
+  const draft = makeAnnotationDraft();
   draft.floors = [draft.floors[0]];
   draft.floors[0].elevation_m = 1.00;
   draft.doors = [];
   draft.exits = [];
   draft.stairs = [];
   const plan = createAutoApplyPlan(draft, [
-    candidate('near', 0.90, { replaceExisting: true, regions: [{ outer: ring(10, 0, 12, 1) }] }),
-    candidate('far', 1.10, { replaceExisting: true, regions: [{ outer: ring(13, 0, 15, 1) }] }),
+    candidate('near', 0.90, { replaceExisting: true, regions: [{ outer: ring(0, 0, 5, 2) }] }),
+    candidate('far', 1.10, { replaceExisting: true, regions: [{ outer: ring(10, 0, 12, 1) }] }),
   ]);
 
   assert.equal(plan.skippedCompetition, 1);
@@ -192,68 +243,126 @@ run('未勾选替换时保留现有可行区、起始区和自动区域', () => 
   assert.equal(result.draft.floors[0].spawn_zones[0].id, 'spawn-1');
 });
 
-run('明确替换无出口和跨层楼梯的楼层时清理区域、起始区和门', () => {
-  const draft = makeDraft();
-  draft.exits = [];
-  draft.stairs = [];
+run('明确替换重建分区并保留、重新关联全部标注', () => {
+  const draft = makeAnnotationDraft();
+  draft.floors[0].spawn_zones[2].outer = ring(0.2, 1.2, 2.2, 1.8);
+  draft.exits[0].position = [4, 0.12, 1.5];
+  draft.stairs[0].bottom = [4, 0.12, 1.5];
+  draft.stairs[0].path[0] = [4, 0.12, 1.5];
+  const originalRegionIds = draft.floors.flatMap((floor) => floor.walkable.map((region) => region.id));
+  const originalSpawnIds = draft.floors.flatMap((floor) => floor.spawn_zones.map((zone) => zone.id));
+  const originalDoorIds = draft.doors.map((door) => door.id);
+  const originalStairIds = draft.stairs.map((stair) => stair.id);
+  const originalExitIds = draft.exits.map((exit) => exit.id);
   const plan = createAutoApplyPlan(draft, [
     candidate('floor-1-replace', 0.12, {
       replaceExisting: true,
-      regions: [{ outer: ring(10, 10, 13, 13) }],
+      regions: [{
+        id: 'whole-floor',
+        outer: ring(0, 0, 5, 2),
+        holes: [ring(2.5, 1.2, 3.5, 1.8), ring(4.7, 1.7, 4.95, 1.82)],
+      }],
     }),
   ]);
   const result = applyAutoApplyPlan(draft, plan);
   const first = result.draft.floors.find((floor) => floor.id === 'floor-1');
   const second = result.draft.floors.find((floor) => floor.id === 'floor-2');
-  const third = result.draft.floors.find((floor) => floor.id === 'floor-3');
 
   assert.equal(plan.operations[0].kind, 'replace');
   assert.equal(result.replacedFloors, 1);
-  assert.deepEqual(first.spawn_zones, [], '目标楼层起始区应清空');
-  assert.deepEqual(first.walkable.map((region) => region.outer), [ring(10, 10, 13, 13)]);
-  assert.deepEqual(second.walkable.map((region) => region.id), ['floor-2-room']);
-  assert.deepEqual(third.walkable.map((region) => region.id), ['floor-3-room']);
-  assert.deepEqual(result.draft.doors.map((door) => door.id), ['door-2', 'door-3']);
-  assert.deepEqual(result.draft.exits, []);
-  assert.deepEqual(result.draft.stairs, []);
+  assert.deepEqual(first.walkable.map((region) => region.id), ['floor-1-room-w', 'floor-1-room-e', 'floor-1-main']);
+
+  assert.equal(first.walkable[2].holes.length, 1, '只保留主区域内面积不小于 0.5 m² 的孔洞');
+  assert.deepEqual(first.walkable[2].holes[0], [[2.5, 1.2], [2.5, 1.8], [3.5, 1.8], [3.5, 1.2]], '保留孔洞的坐标必须规范化且不改变覆盖范围');
+  assert.deepEqual(first.spawn_zones.map((zone) => zone.id), originalSpawnIds.slice(0, 3));
+  assert.equal(first.spawn_zones[0].region, 'floor-1-room-w');
+  assert.equal(first.spawn_zones[1].region, 'floor-1-room-e');
+  assert.equal(first.spawn_zones[2].region, 'floor-1-main');
+  assert.deepEqual(result.draft.doors.map((door) => door.id), originalDoorIds);
+  assert.deepEqual(result.draft.stairs.map((stair) => stair.id), originalStairIds);
+  assert.deepEqual(result.draft.exits.map((exit) => exit.id), originalExitIds);
+  assert.deepEqual(result.draft.floors.flatMap((floor) => floor.walkable.map((region) => region.id)), originalRegionIds);
+  assert.deepEqual(result.annotationMigration, { regions: 3, spawnZones: 3, doors: 2, stairs: 1, exits: 1 });
+  assert.deepEqual(second.walkable.map((region) => region.id), ['floor-2-room-w', 'floor-2-room-e', 'floor-2-main']);
   assert.equal(result.draft.annotation_recheck.status, 'needs-recheck');
   assert.equal(result.draft.navigation_review.status, 'needs-review');
+  assert.deepEqual(result.draft.scale, { status: 'provisional' });
 });
 
-run('明确替换含出口的楼层时原子拒绝并保留整份草稿', () => {
-  const draft = makeDraft();
-  draft.stairs = [];
+run('门两侧落在同一区域时整次失败且草稿不变', () => {
+  const draft = makeAnnotationDraft();
+  draft.doors[0].position = [1, 0.12, 0.5];
   const before = clone(draft);
   const plan = createAutoApplyPlan(draft, [
-    candidate('floor-1-exit-replace', 0.12, {
+    candidate('floor-1-same-side', 0.12, {
       replaceExisting: true,
-      regions: [{ outer: ring(10, 10, 13, 13) }],
+      regions: [{ outer: ring(0, 0, 5, 2) }],
     }),
   ]);
 
-  assert.throws(
-    () => applyAutoApplyPlan(draft, plan),
-    /自动替换已拒绝.*出口|出口.*现有草稿未修改/,
-  );
-  assert.deepEqual(draft, before, '替换被拒绝后不能删除出口、门、起始区或任何区域');
+  assert.throws(() => applyAutoApplyPlan(draft, plan), /门.*两侧落在同一可走区/);
+  assert.deepEqual(draft, before);
 });
 
-run('明确替换含跨层楼梯端点的楼层时原子拒绝并保留整份草稿', () => {
-  const draft = makeDraft();
-  draft.exits = [];
+run('起始区跨区域时整次失败且草稿不变', () => {
+  const draft = makeAnnotationDraft();
+  draft.floors[0].spawn_zones[0].outer = ring(0.2, 0.2, 4.8, 0.8);
   const before = clone(draft);
   const plan = createAutoApplyPlan(draft, [
-    candidate('floor-2-stair-replace', 1.32, {
+    candidate('floor-1-spawn-split', 0.12, {
       replaceExisting: true,
-      regions: [{ outer: ring(10, 10, 13, 13) }],
+      regions: [{ outer: ring(0, 0, 5, 2) }],
     }),
   ]);
 
-  assert.throws(
-    () => applyAutoApplyPlan(draft, plan),
-    /自动替换已拒绝.*跨层楼梯|跨层楼梯.*现有草稿未修改/,
-  );
-  assert.deepEqual(draft, before, '替换被拒绝后不能删除楼梯、门、起始区或任何区域');
+  assert.throws(() => applyAutoApplyPlan(draft, plan), /起始区.*必须完整位于同一可走区内/);
+  assert.deepEqual(draft, before);
+});
+
+run('楼梯端点越层时整次失败且草稿不变', () => {
+  const draft = makeAnnotationDraft();
+  draft.stairs[1].bottom = [10, 1.32, 1.5];
+  const before = clone(draft);
+  const plan = createAutoApplyPlan(draft, [
+    candidate('floor-2-stair-bad', 1.32, {
+      replaceExisting: true,
+      regions: [{ outer: ring(0, 0, 5, 2) }],
+    }),
+  ]);
+
+  assert.throws(() => applyAutoApplyPlan(draft, plan), /楼梯.*下端/);
+  assert.deepEqual(draft, before);
+});
+
+run('第四层替换不影响第三层区域和标注', () => {
+  const draft = makeAnnotationDraft();
+  draft.floors.push({
+    id: 'floor-4', name: '四层', elevation_m: 3.72,
+    walkable: [
+      { id: 'floor-4-room-w', name: '西教室', outer: ring(0, 0, 2, 1), holes: [] },
+      { id: 'floor-4-room-e', name: '东教室', outer: ring(3, 0, 5, 1), holes: [] },
+      { id: 'floor-4-main', name: '主区域', outer: ring(0, 1, 5, 2), holes: [] },
+    ],
+    spawn_zones: [{ id: 'floor-4-spawn-w', outer: ring(0.2, 0.2, 1.8, 0.8) }],
+  });
+  draft.doors.push({ id: 'floor-4-door-w', floor: 'floor-4', position: [1, 3.72, 1], normal: [0, 1] });
+  const thirdBefore = clone(draft.floors.find((floor) => floor.id === 'floor-3'));
+  const thirdDoorsBefore = clone(draft.doors.filter((door) => door.floor === 'floor-3'));
+  const plan = createAutoApplyPlan(draft, [
+    candidate('floor-4-replace', 3.72, {
+      replaceExisting: true,
+      regions: [{ outer: ring(0, 0, 5, 1.2) }],
+    }),
+  ]);
+  const result = applyAutoApplyPlan(draft, plan);
+  const third = result.draft.floors.find((floor) => floor.id === 'floor-3');
+  const fourth = result.draft.floors.find((floor) => floor.id === 'floor-4');
+
+  assert.deepEqual(third, thirdBefore);
+  assert.deepEqual(result.draft.doors.filter((door) => door.floor === 'floor-3'), thirdDoorsBefore);
+  assert.equal(fourth.walkable[0].id, 'floor-4-room-w');
+  assert.equal(fourth.walkable[1].id, 'floor-4-room-e');
+  assert.equal(fourth.walkable[2].id, 'floor-4-main');
 });
 
 run('已有楼层跳过替换与第四层新建可以在同一计划中混合应用', () => {
